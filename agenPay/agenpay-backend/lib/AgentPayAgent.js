@@ -449,7 +449,7 @@ export class AgenPayAgent {
         });
         return {
           success: true, invoiceNumber: inv.number, total: `${formatUnits(inv.amount)} USDC`, dueDate: inv.dueDate.toISOString().slice(0, 10),
-          checkoutLink: `${appUrl}/invoice/${inv.id}`, emailQueued: true, notionSyncQueued: true,
+          checkoutLink: `${appUrl}/invoice/${inv.id}`, x402Link: `${(process.env.BASE_URL || 'http://localhost:3001').replace(/[/]$/, '')}/x402pay/${inv.id}`, emailQueued: true, notionSyncQueued: true,
         };
       }), {
         name: 'create_invoice',

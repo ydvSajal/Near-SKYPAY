@@ -5,7 +5,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { Account, JsonRpcProvider, KeyPair, KeyPairSigner, actions, decodeSignedDelegate } from 'near-api-js';
-import { normalizeDelegate, checkDelegate, makeRateLimiter } from './relayGuard.js';
+import { normalizeDelegate, checkDelegate, checkPaymentDelegate, makeRateLimiter } from './relayGuard.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ARTIFACTS = path.join(__dirname, '..', '..', 'near-artifacts');
@@ -265,6 +265,32 @@ export class NearService {
       receiverId: d.senderId, actions: [actions.signedDelegate(signed)], waitUntil: 'EXECUTED_OPTIMISTIC', throwOnFailure: false,
     });
     return { txHash: res.transaction.hash, status: res.status };
+  }
+
+  /** Decode + check a payer-signed ft_transfer delegate (x402 `exact` on NEAR). Throws status-tagged errors. */
+  async checkPaymentDelegateB64(signedDelegateB64, { payTo, minAmount }) {
+    let signed;
+    try {
+      signed = decodeSignedDelegate(Buffer.from(String(signedDelegateB64), 'base64'));
+    } catch {
+      throw Object.assign(new Error('malformed signed delegate'), { status: 400 });
+    }
+    const d = normalizeDelegate(signed.delegateAction);
+    const v = checkPaymentDelegate(d, { token: this.token, payTo, minAmount, currentBlockHeight: await this.blockHeight() });
+    if (!v.ok) throw Object.assign(new Error(`payment refused: ${v.reason}`), { status: 422 });
+    return { signed, d };
+  }
+
+  /** Submit a payer's already-checked payment delegate. Sponsor pays gas only; replays are refused. */
+  async relayPayment({ signed, d, signedDelegateB64, rateKey }) {
+    if (!this.rateLimit(`pay:${rateKey}`)) throw Object.assign(new Error('rate limit: too many sponsored payments'), { status: 429 });
+    const key = crypto.createHash('sha256').update(String(signedDelegateB64)).digest('hex'); // chain nonce also blocks replays
+    if (this.seenDelegates.has(key)) throw Object.assign(new Error('payment refused: replayed delegate'), { status: 409 });
+    this.seenDelegates.add(key);
+    const res = await this.relayer().signAndSendTransaction({
+      receiverId: d.senderId, actions: [actions.signedDelegate(signed)], waitUntil: 'EXECUTED_OPTIMISTIC', throwOnFailure: false,
+    });
+    return { txHash: res.transaction.hash, status: res.status, payer: d.senderId };
   }
 
   // ------------------------------------------------------------ agent payments

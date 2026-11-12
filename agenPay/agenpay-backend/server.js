@@ -19,6 +19,7 @@ import { NearService } from './lib/near/NearService.js';
 import { Outbox } from './lib/outbox.js';
 import { SkyPay } from './lib/skypay.js';
 import { createNearRouter } from './lib/nearRouter.js';
+import { createX402Router } from './lib/x402.js';
 
 // Load environment variables
 config({ path: ['.env.near', '.env'] }); // NEAR secrets live in .env.near (gitignored)
@@ -114,6 +115,13 @@ const authenticateToken = async (req, res, next) => {
 
 // ⛓️ NEAR workflow: company vault, sponsored relay, invoices, checkout, exports
 app.use(createNearRouter({ prisma, near: nearService, skypay, authenticateToken }));
+
+// x402 on NEAR: pay links (HTTP 402) + self-hosted facilitator
+app.use(createX402Router({
+  prisma, near: nearService, skypay,
+  baseUrl: process.env.BASE_URL || `http://localhost:${process.env.PORT || 3001}`,
+  appUrl: allowedOrigins[0],
+}));
 
 // Health check
 app.get('/health', (req, res) => {

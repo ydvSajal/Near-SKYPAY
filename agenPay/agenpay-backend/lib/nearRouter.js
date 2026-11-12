@@ -16,6 +16,7 @@ export function createNearRouter({ prisma, near, skypay, authenticateToken }) {
   const r = express.Router();
   const publicLimiter = rateLimit({ windowMs: 60_000, max: 20, standardHeaders: true, legacyHeaders: false });
   const me = (req) => skypay.user(req.user.id);
+  const x402Base = (process.env.BASE_URL || `http://localhost:${process.env.PORT || 3001}`).replace(/[/]$/, '');
   const isTestToken = process.env.NEAR_USDC_IS_TEST_TOKEN === 'true';
 
   // ------------------------------------------------------------ company setup
@@ -111,7 +112,7 @@ export function createNearRouter({ prisma, near, skypay, authenticateToken }) {
   // ---------------------------------------------------------------- invoices
   const view = (i) => ({
     ...i, amountFormatted: formatUnits(i.amount, i.decimals), settledFormatted: i.settledAmount ? formatUnits(i.settledAmount, i.decimals) : null,
-    txUrl: i.settledTxHash ? near.explorerTx(i.settledTxHash) : null,
+    txUrl: i.settledTxHash ? near.explorerTx(i.settledTxHash) : null, x402Link: `${x402Base}/x402pay/${i.id}`,
   });
 
   r.get('/api/invoices', authenticateToken, wrap(async (req, res) => {
@@ -135,6 +136,7 @@ export function createNearRouter({ prisma, near, skypay, authenticateToken }) {
       decimals: i.decimals, network: i.network, receiver: i.receiver, dueDate: i.dueDate, createdAt: i.createdAt, status: i.status,
       settledAmount: i.settledAmount, settledAt: i.settledAt, settledTxHash: i.settledTxHash,
       txUrl: i.settledTxHash ? near.explorerTx(i.settledTxHash) : null, isTestToken, relayer: near.relayerId,
+      x402Link: `${x402Base}/x402pay/${i.id}`,
     });
   }));
 

@@ -12,6 +12,7 @@ export class Outbox {
     this.prisma = prisma;
     this.near = near;
     this.env = env;
+    this.baseUrl = (env.BASE_URL || `http://localhost:${env.PORT || 3001}`).replace(/[/]$/, '');
     this.appUrl = (env.FRONTEND_URL || 'http://localhost:3000').split(',')[0].trim();
     const live = env.EMAIL_USER && env.EMAIL_PASS && env.EMAIL_USER !== 'test@example.com';
     this.mailer = live
@@ -128,7 +129,7 @@ export class Outbox {
       requestId: i.id, amount: Number(formatUnits(i.amount, i.decimals)), currency: i.asset, network: i.network,
       recipientEmail: i.customerEmail, recipientName: i.customerName, description: `${i.number} ${i.description || ''}`.trim(),
       transactionType: 'invoice', status: i.status === 'paid' ? 'payment_received' : 'processing',
-      x402PayLink: this.link(i), paymentHash: i.settledTxHash || '',
+      x402PayLink: `${this.baseUrl}/x402pay/${i.id}`, paymentHash: i.settledTxHash || '',
     });
     if (r && r.success === false) throw new Error(r.error || 'notion upsert failed');
     return 'live';
