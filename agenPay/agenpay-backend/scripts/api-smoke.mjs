@@ -8,7 +8,7 @@ import { config } from 'dotenv';
 import { KeyPair, KeyPairSigner, Account, JsonRpcProvider, actions, encodeSignedDelegate } from 'near-api-js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-config({ path: path.join(here, '..', '.env') });
+config({ path: [path.join(here, '..', '.env.near'), path.join(here, '..', '.env')] });
 const API = process.env.SMOKE_API || 'http://localhost:3001';
 const RPC = process.env.NEAR_RPC_URL || 'https://test.rpc.fastnear.com';
 const out = [];
@@ -63,10 +63,11 @@ const st0 = (await call('GET', '/api/near/status')).body;
 say(`9. company received ${Number(st0.companyBalance) / 1e6} ${st0.tokenLabel}`);
 
 const payeeKp = KeyPair.fromRandom('ed25519');
-const payeeId = `sup-${crypto.randomBytes(2).toString('hex')}.${st0.relayer}`;
+const payeeId = `skypay-sup-${crypto.randomBytes(3).toString('hex')}.testnet`;
 // a supplier's own account (created here only so the demo has a real recipient)
 const relayerAcct = new Account(process.env.NEAR_RELAYER_ACCOUNT, new JsonRpcProvider({ url: RPC }), KeyPairSigner.fromSecretKey(process.env.NEAR_RELAYER_KEY));
-await relayerAcct.createAccount({ newAccountId: payeeId, publicKey: payeeKp.getPublicKey().toString(), nearToTransfer: 5n * 10n ** 22n });
+await relayerAcct.callFunctionRaw({ contractId: 'testnet', methodName: 'create_account', args: { new_account_id: payeeId, new_public_key: payeeKp.getPublicKey().toString() }, deposit: 5n * 10n ** 22n, gas: 100n * TGAS });
+for (let i = 0; i < 10; i++) { const r = await fetch(RPC, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'query', params: { request_type: 'view_account', finality: 'optimistic', account_id: payeeId } }) }); if (!(await r.json()).error) break; await new Promise((x) => setTimeout(x, 1000)); }
 const payee = (await call('POST', '/api/payees', { name: 'Pixel Supplies', nearAccount: payeeId })).body.payee;
 say(`10. owner registered payee ${payee.name} = ${payee.nearAccount}`);
 

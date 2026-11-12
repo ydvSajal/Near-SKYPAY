@@ -28,7 +28,7 @@ import { SkyPay } from './lib/skypay.js';
 import { createNearRouter } from './lib/nearRouter.js';
 
 // Load environment variables
-config();
+config({ path: ['.env.near', '.env'] }); // NEAR secrets live in .env.near (gitignored)
 
 // Fail fast: signing tokens with an undefined secret must never happen.
 if (!process.env.JWT_SECRET) {

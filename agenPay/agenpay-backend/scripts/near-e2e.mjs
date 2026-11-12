@@ -9,7 +9,7 @@ import { KeyPair, KeyPairSigner, Account, actions, encodeSignedDelegate } from '
 import { NearService } from '../lib/near/NearService.js';
 import { parseUnits, formatUnits } from '../lib/near/units.js';
 
-config({ path: path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '.env') });
+config({ path: [path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '.env.near'), path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '.env')] });
 const near = new NearService(process.env);
 const out = [];
 const say = (...a) => { const l = a.join(' '); out.push(l); console.log(l); };
@@ -44,9 +44,9 @@ const tryRelay = async (label, fn) => {
 };
 
 // payee + funding of the company with TEST tokens (stands in for an invoice payment)
-const payeeId = `pay-${rand()}.${near.relayerId}`;
+const payeeId = `skypay-pay-${rand()}.testnet`;
 const payeeKp = KeyPair.fromRandom('ed25519');
-await near.relayer().createAccount({ newAccountId: payeeId, publicKey: payeeKp.getPublicKey().toString(), nearToTransfer: 5n * 10n ** 22n });
+await near.createNamedAccount(payeeId, payeeKp.getPublicKey().toString(), 5n * 10n ** 22n);
 await near.registerOnToken(payeeId);
 await near.relayer().callFunctionRaw({ contractId: near.token, methodName: 'mint', args: { account_id: p.company, amount: U('100') }, gas: 30n * TGAS });
 say(`company balance: ${formatUnits(await near.ftBalance(p.company))} tUSDC`);

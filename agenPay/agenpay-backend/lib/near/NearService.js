@@ -163,21 +163,31 @@ export class NearService {
    * vault    : contract, owner = company, full-access key DELETED after deploy (immutable, no upgrade path)
    * agent    : may only call vault.pay via a restricted function-call key (gas allowance only)
    */
+  /** Sponsor creates a top-level `<name>.testnet` account via the network's registrar contract and funds it. */
+  async createNamedAccount(newAccountId, publicKey, amountYocto) {
+    const res = await this.relayer().callFunctionRaw({
+      contractId: this.cfg.suffix, methodName: 'create_account',
+      args: { new_account_id: newAccountId, new_public_key: publicKey }, deposit: amountYocto, gas: 100n * TGAS,
+    });
+    for (let i = 0; i < 10 && !(await this.accountExists(newAccountId)); i++) await new Promise((x) => setTimeout(x, 1000));
+    if (!(await this.accountExists(newAccountId))) throw new Error(`account ${newAccountId} was not created`);
+    return res.transaction.hash;
+  }
+
   async provision({ slug, ownerPublicKey }) {
-    const root = this.relayerId; // accounts are sub-accounts of the sponsor, funded by it (no external faucet needed)
-    const company = `${slug}.${root}`;
-    const vault = `v-${slug}.${root}`;
-    const agent = `a-${slug}.${root}`;
+    const sfx = this.cfg.suffix; // top-level names, created + funded by the sponsor (owner buys no NEAR)
+    const company = `${slug}.${sfx}`;
+    const vault = `${slug}-vault.${sfx}`;
+    const agent = `${slug}-agent.${sfx}`;
     for (const id of [company, vault, agent]) {
       if (id.length > 64) throw new Error('name too long');
       if (await this.accountExists(id)) throw new Error(`${id} already exists`);
     }
-    const relayer = this.relayer();
     const NEAR = 10n ** 24n;
     const log = [];
 
     // 1. company account carries the owner's browser-held key (we never see the secret)
-    await relayer.createAccount({ newAccountId: company, publicKey: ownerPublicKey, nearToTransfer: NEAR / 5n });
+    await this.createNamedAccount(company, ownerPublicKey, NEAR / 5n);
     log.push({ kind: 'account_create', detail: company });
 
     // 2. vault: deploy contract, init, register on token, then delete the only key (immutable)
@@ -185,7 +195,7 @@ export class NearService {
     const wasm = fs.readFileSync(path.join(ARTIFACTS, 'skypay_vault.wasm'));
     // storage staking: ~1 NEAR per 100 KB of code, plus headroom for payment records
     const vaultFunding = BigInt(wasm.length) * 10n ** 19n + (NEAR * 3n) / 10n; // 1e19 yocto per byte
-    await relayer.createAccount({ newAccountId: vault, publicKey: vaultKp.getPublicKey().toString(), nearToTransfer: vaultFunding });
+    await this.createNamedAccount(vault, vaultKp.getPublicKey().toString(), vaultFunding);
     const v = this.account(vault, vaultKp.toString());
     await v.deployContract(wasm);
     await v.callFunctionRaw({ contractId: vault, methodName: 'new', args: { owner: company, token: this.token }, gas: 30n * TGAS });
@@ -198,7 +208,7 @@ export class NearService {
 
     // 3. agent account with a function-call-only key
     const agentFull = KeyPair.fromRandom('ed25519');
-    await relayer.createAccount({ newAccountId: agent, publicKey: agentFull.getPublicKey().toString(), nearToTransfer: NEAR / 5n });
+    await this.createNamedAccount(agent, agentFull.getPublicKey().toString(), NEAR / 5n);
     const agentFc = KeyPair.fromRandom('ed25519');
     const a = this.account(agent, agentFull.toString());
     await a.addFunctionCallAccessKey({

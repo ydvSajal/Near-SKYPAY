@@ -6,3 +6,4 @@ node_modules/
 *.log
 target/
 Cargo.lock.bak
+.env.near
