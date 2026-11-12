@@ -97,7 +97,11 @@ export function createNearRouter({ prisma, near, skypay, authenticateToken }) {
 
   r.post('/api/vault/payments', authenticateToken, wrap(async (req, res) => {
     const a = await skypay.paySupplier(req.user.id, req.body || {});
-    res.status(a.status === 'failed' ? 422 : 200).json({ payment: { ...a, url: a.txHash ? near.explorerTx(a.txHash) : null } });
+    const payment = { ...a, url: a.txHash ? near.explorerTx(a.txHash) : null };
+    if (a.status === 'failed') {
+      return res.status(422).json({ error: `Refused by vault: ${String(a.error).replace(/^.*Contract panicked: /, '')}`, payment });
+    }
+    res.json({ payment });
   }));
 
   r.post('/api/vault/payments/:id/reconcile', authenticateToken, wrap(async (req, res) => {

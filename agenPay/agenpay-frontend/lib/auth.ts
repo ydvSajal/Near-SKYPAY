@@ -480,6 +480,15 @@ class AuthService {
     this.initialized = true
   }
 
+  /** Generic JSON call to the SkyPay API (throws with the server's error message). */
+  api<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+    return this.request<T>(endpoint, options)
+  }
+
+  get apiBaseUrl(): string {
+    return API_BASE_URL
+  }
+
   getToken(): string | null {
     // Initialize token if not already done
     this.initializeToken()

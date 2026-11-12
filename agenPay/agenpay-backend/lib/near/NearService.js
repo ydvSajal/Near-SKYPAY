@@ -245,7 +245,7 @@ export class NearService {
       userAccount: user.nearAccountId, userPublicKey: user.nearPublicKey, vault: user.vaultAccountId,
       token: this.token, currentBlockHeight: await this.blockHeight(),
     });
-    if (!verdict.ok) throw Object.assign(new Error(`relay refused: ${verdict.reason}`), { status: 403 });
+    if (!verdict.ok) throw Object.assign(new Error(`relay refused: ${verdict.reason}`), { status: 422 });
 
     const key = `${d.senderId}:${d.publicKey}:${d.maxBlockHeight}:${Buffer.from(signedDelegateB64, 'base64').subarray(-64).toString('hex')}`;
     if (this.seenDelegates.has(key)) throw Object.assign(new Error('relay refused: replayed delegate'), { status: 409 });

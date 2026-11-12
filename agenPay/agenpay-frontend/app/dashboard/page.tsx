@@ -375,6 +375,12 @@ export default function Dashboard() {
             <span className="font-sans text-xl font-semibold">SKYPay</span>
           </Link>
           <span className="hidden text-sm text-slate-500 sm:inline">Dashboard</span>
+          <Link
+            href="/finance"
+            className="ml-2 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:opacity-90"
+          >
+            Finance · NEAR
+          </Link>
         </div>
 
         <div className="flex items-center gap-2">
