@@ -17,11 +17,6 @@ model User {
   name             String?
   notionApiKey     String?
   notionWorkspaceId String?
-  walletAddress    String?            // managed (Privy embedded) wallet — agent signs here
-  walletId         String?
-  externalWalletAddress String?       // self-custody wallet the user connected (MetaMask, etc.)
-  walletProvider        String?       // metamask | walletConnect | coinbaseWallet | ...
-  walletNonce           String?       // one-time nonce for connect-signature verification
   // --- NEAR (hackathon) ---
   nearAccountId    String?  @unique   // company receiving account (collections land here)
   nearPublicKey    String?            // owner's browser-held public key (private key never stored)
@@ -33,10 +28,7 @@ model User {
   
   // Relations
   notionDatabases  NotionDatabase[]
-  transactions     Transaction[]
   agent            Agent?
-  paymentRequests  PaymentRequest[]
-  outgoingPayments OutgoingPayment[]
   invoices         Invoice[]
   payees           Payee[]
   paymentAttempts  PaymentAttempt[]
@@ -154,33 +146,6 @@ model Agent {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
-model Transaction {
-  id                String    @id @default(cuid())
-  userId            String
-  type              String    // INCOMING, OUTGOING, REFUND
-  status            String    // PENDING, PROCESSING, COMPLETED, FAILED
-  amount            Float
-  currency          String    @default("ETH")
-  network           String?
-  description       String?
-  toAddress         String?
-  fromAddress       String?
-  txHash            String?
-  x402PayId         String?
-  relatedRequestId  String?
-  paymentId         String?
-  paymentLink       String?
-  recipientEmail    String?
-  emailSent         Boolean   @default(false)
-  emailSentAt       DateTime?
-  completedAt       DateTime?
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
-  
-  // Relations
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-}
-
 model NotionDatabase {
   id           String   @id @default(cuid())
   userId       String
@@ -191,53 +156,6 @@ model NotionDatabase {
   isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
-  
-  // Relations
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-}
-
-model PaymentRequest {
-  id              String    @id
-  userId          String
-  amount          Float
-  currency        String    @default("USDC")
-  network         String    @default("sei-testnet")
-  recipientEmail  String?
-  recipientName   String?
-  description     String?
-  aiPrompt        String?
-  transactionType String    @default("ask_payment") // ask_payment, ask_and_refund, subscription
-  scheduleType    String    @default("immediate")   // immediate, scheduled
-  scheduledDate   DateTime?
-  status          String    @default("draft")       // draft, scheduled, processing, payment_received, refunded, failed, cancelled
-  x402PayLink     String?
-  paymentHash     String?
-  paidAt          DateTime?
-  refundDate      DateTime?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-  
-  // Relations
-  user            User @relation(fields: [userId], references: [id], onDelete: Cascade)
-}
-
-model OutgoingPayment {
-  id               String    @id @default(cuid())
-  userId           String
-  amount           Float
-  currency         String    @default("SEI")
-  network          String    @default("sei-testnet")
-  recipientAddress String
-  recipientName    String?
-  fromName         String?
-  description      String?
-  scheduleDate     DateTime
-  status           String    @default("scheduled") // scheduled, processing, completed, failed, cancelled
-  txHash           String?
-  executedAt       DateTime?
-  relatedRequestId String?
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
   
   // Relations
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)

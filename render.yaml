@@ -30,13 +30,21 @@ services:
         sync: false
       - key: FRONTEND_URL          # your Vercel domain (OAuth redirects + CORS)
         sync: false
-      - key: X402_FACILITATOR_URL  # the facilitator service's Render URL
+      - key: BASE_URL              # this backend's public URL (x402 pay links)
         sync: false
-      - key: FACILITATOR_API_KEY   # shared secret; must match facilitator below
+      - key: NEAR_NETWORK
+        value: testnet
+      - key: NEAR_RPC_URL
+        value: https://test.rpc.fastnear.com
+      - key: NEAR_RELAYER_ACCOUNT
         sync: false
-      - key: PRIVY_APP_ID
+      - key: NEAR_RELAYER_KEY
         sync: false
-      - key: PRIVY_APP_SECRET
+      - key: NEAR_USDC_CONTRACT
+        sync: false
+      - key: NEAR_USDC_IS_TEST_TOKEN
+        value: "true"
+      - key: NEAR_KEY_ENC_SECRET
         sync: false
       - key: NOTION_CLIENT_ID
         sync: false
@@ -63,17 +71,3 @@ services:
       - key: EMAIL_FROM
         sync: false
 
-  - type: web
-    name: agenpay-facilitator
-    runtime: node
-    rootDir: agenPay/agenpay-facilitator
-    plan: free
-    buildCommand: npm install
-    startCommand: npm run dev
-    envVars:
-      - key: NODE_ENV
-        value: production
-      - key: PRIVATE_KEY           # funded Sei wallet key that signs settlements
-        sync: false
-      - key: FACILITATOR_API_KEY   # must match the backend value above
-        sync: false
