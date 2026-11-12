@@ -22,6 +22,10 @@ import WalletService from './lib/WalletService.js';
 import X402PayService from './lib/X402PayService.js';
 import SchedulingService from './lib/SchedulingService.js';
 import adminRouter from './lib/adminRouter.js';
+import { NearService } from './lib/near/NearService.js';
+import { Outbox } from './lib/outbox.js';
+import { SkyPay } from './lib/skypay.js';
+import { createNearRouter } from './lib/nearRouter.js';
 
 // Load environment variables
 config();
@@ -40,6 +44,9 @@ const prisma = new PrismaClient();
 const walletService = new WalletService();
 const x402PayService = new X402PayService();
 const schedulingService = new SchedulingService();
+const nearService = new NearService(process.env);
+const outbox = new Outbox({ prisma, near: nearService });
+const skypay = new SkyPay({ prisma, near: nearService, outbox });
 
 // Store active agents for each user
 const activeAgents = new Map();
@@ -120,6 +127,9 @@ const authenticateToken = async (req, res, next) => {
     return res.status(403).json({ error: 'Invalid or expired token' });
   }
 };
+
+// ⛓️ NEAR workflow: company vault, sponsored relay, invoices, checkout, exports
+app.use(createNearRouter({ prisma, near: nearService, skypay, authenticateToken }));
 
 // 🏠 Health check
 app.get('/health', (req, res) => {
@@ -760,6 +770,7 @@ app.post('/api/agent/start', authenticateToken, async (req, res) => {
 
     const sharedServices = {
       x402PayService: x402PayService,  // Pass the shared X402PayService instance
+      skypay,
     };
 
     const agent = new AgenPayAgent(req.user.id, userConfig, sharedServices);
@@ -832,6 +843,7 @@ app.post('/api/agent/process', authenticateToken, async (req, res) => {
       
       const sharedServices = {
         x402PayService: x402PayService,  // Pass the shared X402PayService instance
+        skypay,
       };
       
       try {
@@ -1034,6 +1046,8 @@ process.on('SIGINT', async () => {
 const PORT = process.env.PORT || 3001;
 
 app.listen(PORT, () => {
+  outbox.start();
+  console.log(`⛓️  NEAR ${nearService.network}: ${nearService.configured ? `token ${nearService.token}, relayer ${nearService.relayerId}` : 'NOT configured (npm run near:bootstrap)'}`);
   console.log(`
 🚀 AgenPay Multi-User API Server
 ================================

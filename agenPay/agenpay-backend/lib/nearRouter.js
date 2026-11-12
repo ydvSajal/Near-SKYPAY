@@ -1,0 +1,171 @@
+// HTTP routes for the NEAR workflow: company setup, sponsored relay, payees, vault payments,
+// invoices (private + public checkout), and accountant exports. All private reads are scoped to req.user.id (A17).
+import express from 'express';
+import crypto from 'node:crypto';
+import rateLimit from 'express-rate-limit';
+import { formatUnits, parseUnits } from './near/units.js';
+import { invoicesCsv, paymentsCsv } from './csvExport.js';
+
+const wrap = (fn) => (req, res) =>
+  fn(req, res).catch((e) => {
+    if (!e.status) console.error('❌', req.method, req.originalUrl, e);
+    res.status(e.status || 500).json({ error: e.status ? e.message : 'internal error' });
+  });
+
+export function createNearRouter({ prisma, near, skypay, authenticateToken }) {
+  const r = express.Router();
+  const publicLimiter = rateLimit({ windowMs: 60_000, max: 20, standardHeaders: true, legacyHeaders: false });
+  const me = (req) => skypay.user(req.user.id);
+  const isTestToken = process.env.NEAR_USDC_IS_TEST_TOKEN === 'true';
+
+  // ------------------------------------------------------------ company setup
+  r.get('/api/near/status', authenticateToken, wrap(async (req, res) => {
+    const u = await me(req);
+    const out = {
+      configured: near.configured, network: near.network, token: near.token, isTestToken,
+      tokenLabel: isTestToken ? 'tUSDC (testnet test token, no value)' : 'USDC',
+      relayer: near.relayerId, company: u.nearAccountId, vault: u.vaultAccountId, agent: u.agentAccountId,
+      ownerPublicKey: u.nearPublicKey,
+    };
+    if (u.vaultAccountId) {
+      const [bal, vault, agent] = await Promise.all([
+        near.ftBalance(u.nearAccountId), near.vaultState(u.vaultAccountId), near.vaultAgent(u.vaultAccountId, u.agentAccountId),
+      ]);
+      Object.assign(out, {
+        companyBalance: bal, vaultAvailable: vault.available, vaultReserved: vault.reserved, agentPolicy: agent,
+        links: { company: near.explorerAccount(u.nearAccountId), vault: near.explorerAccount(u.vaultAccountId), agent: near.explorerAccount(u.agentAccountId) },
+      });
+    }
+    res.json(out);
+  }));
+
+  r.post('/api/near/provision', authenticateToken, wrap(async (req, res) => {
+    const u = await me(req);
+    if (u.nearAccountId) return res.status(409).json({ error: 'already provisioned', company: u.nearAccountId });
+    const publicKey = String(req.body.publicKey || '');
+    if (!/^ed25519:[1-9A-HJ-NP-Za-km-z]{43,44}$/.test(publicKey)) return res.status(400).json({ error: 'ed25519 public key required' });
+    const base = (u.name || u.email.split('@')[0]).toLowerCase().replace(/[^a-z0-9]+/g, '').slice(0, 12) || 'co';
+    const slug = `${base}${crypto.randomBytes(2).toString('hex')}`;
+    const p = await near.provision({ slug, ownerPublicKey: publicKey });
+    await prisma.user.update({
+      where: { id: u.id },
+      data: { nearAccountId: p.company, nearPublicKey: publicKey, vaultAccountId: p.vault, agentAccountId: p.agent, agentKeyEnc: p.agentKeyEnc },
+    });
+    await prisma.sponsorLedger.createMany({ data: p.log.map((l) => ({ userId: u.id, kind: l.kind, detail: l.detail })) });
+    res.json({ company: p.company, vault: p.vault, agent: p.agent, sponsored: p.log });
+  }));
+
+  // Sponsored owner actions: browser signs a delegate action, relayer pays gas (A21, A22).
+  r.post('/api/near/relay', authenticateToken, wrap(async (req, res) => {
+    const u = await me(req);
+    const out = await near.relay({ signedDelegateB64: String(req.body.signedDelegate || ''), user: u });
+    await prisma.sponsorLedger.create({ data: { userId: u.id, kind: 'relay', detail: String(req.body.label || '').slice(0, 80), txHash: out.txHash } });
+    const failure = out.status?.Failure;
+    res.status(failure ? 422 : 200).json({ txHash: out.txHash, url: near.explorerTx(out.txHash), failure: failure || null });
+  }));
+
+  // Testnet-only convenience: mint test tokens into the company account so the owner can fund the vault.
+  r.post('/api/near/test-faucet', authenticateToken, wrap(async (req, res) => {
+    if (!isTestToken) return res.status(404).json({ error: 'not available with real USDC' });
+    const u = await me(req);
+    if (!u.nearAccountId) return res.status(409).json({ error: 'not provisioned' });
+    const x = await near.relayer().callFunctionRaw({
+      contractId: near.token, methodName: 'mint', args: { account_id: u.nearAccountId, amount: parseUnits('100') }, gas: 30_000_000_000_000n,
+    });
+    res.json({ minted: '100', txHash: x.transaction.hash, url: near.explorerTx(x.transaction.hash), label: 'TEST tokens, no value' });
+  }));
+
+  // ------------------------------------------------------------------ payees
+  r.get('/api/payees', authenticateToken, wrap(async (req, res) => {
+    const u = await me(req);
+    const list = await prisma.payee.findMany({ where: { userId: u.id }, orderBy: { createdAt: 'asc' } });
+    const withChain = await Promise.all(list.map(async (p) => ({
+      ...p, allowListedOnChain: u.vaultAccountId ? await near.view(u.vaultAccountId, 'is_payee', { payee: p.nearAccount }) : false,
+    })));
+    res.json({ payees: withChain });
+  }));
+
+  r.post('/api/payees', authenticateToken, wrap(async (req, res) => {
+    res.json({ payee: await skypay.addPayee(req.user.id, req.body || {}) });
+  }));
+
+  // ---------------------------------------------------------- vault payments
+  r.get('/api/vault/payments', authenticateToken, wrap(async (req, res) => {
+    const list = await prisma.paymentAttempt.findMany({ where: { userId: req.user.id, direction: 'OUT' }, orderBy: { createdAt: 'desc' }, take: 50 });
+    res.json({ payments: list.map((p) => ({ ...p, amountFormatted: formatUnits(p.amount), url: p.txHash ? near.explorerTx(p.txHash) : null })) });
+  }));
+
+  r.post('/api/vault/payments', authenticateToken, wrap(async (req, res) => {
+    const a = await skypay.paySupplier(req.user.id, req.body || {});
+    res.status(a.status === 'failed' ? 422 : 200).json({ payment: { ...a, url: a.txHash ? near.explorerTx(a.txHash) : null } });
+  }));
+
+  r.post('/api/vault/payments/:id/reconcile', authenticateToken, wrap(async (req, res) => {
+    res.json({ payment: await skypay.reconcile(req.user.id, req.params.id) });
+  }));
+
+  // ---------------------------------------------------------------- invoices
+  const view = (i) => ({
+    ...i, amountFormatted: formatUnits(i.amount, i.decimals), settledFormatted: i.settledAmount ? formatUnits(i.settledAmount, i.decimals) : null,
+    txUrl: i.settledTxHash ? near.explorerTx(i.settledTxHash) : null,
+  });
+
+  r.get('/api/invoices', authenticateToken, wrap(async (req, res) => {
+    const list = await prisma.invoice.findMany({ where: { userId: req.user.id }, orderBy: { createdAt: 'desc' } });
+    res.json({ invoices: list.map(view) });
+  }));
+
+  r.post('/api/invoices', authenticateToken, wrap(async (req, res) => {
+    const inv = await skypay.createInvoice(req.user.id, req.body || {});
+    res.status(201).json({ invoice: view(inv) });
+  }));
+
+  // public checkout data: no secrets, no other invoices, no customer list
+  r.get('/api/public/invoices/:id', publicLimiter, wrap(async (req, res) => {
+    const i = await prisma.invoice.findUnique({ where: { id: req.params.id }, include: { user: { select: { name: true, email: true } } } });
+    if (!i) return res.status(404).json({ error: 'invoice not found' });
+    res.json({
+      id: i.id, number: i.number, merchant: i.user.name || i.user.email.split('@')[0], customerName: i.customerName,
+      description: i.description, lineItems: i.lineItems.map((li) => ({ ...li, unitFormatted: formatUnits(li.unitAmount, i.decimals) })),
+      amount: i.amount, amountFormatted: formatUnits(i.amount, i.decimals), asset: i.asset, assetContract: i.assetContract,
+      decimals: i.decimals, network: i.network, receiver: i.receiver, dueDate: i.dueDate, createdAt: i.createdAt, status: i.status,
+      settledAmount: i.settledAmount, settledAt: i.settledAt, settledTxHash: i.settledTxHash,
+      txUrl: i.settledTxHash ? near.explorerTx(i.settledTxHash) : null, isTestToken, relayer: near.relayerId,
+    });
+  }));
+
+  r.post('/api/public/invoices/:id/confirm', publicLimiter, wrap(async (req, res) => {
+    const out = await skypay.confirmInvoicePayment(req.params.id, req.body || {});
+    res.json({ status: out.invoice.status, alreadyPaid: !!out.alreadyPaid, txUrl: out.invoice.settledTxHash ? near.explorerTx(out.invoice.settledTxHash) : null });
+  }));
+
+  // TESTNET demo payer: a real testnet transfer of TEST tokens from SkyPay's demo wallet, then verified like any other payment.
+  r.post('/api/public/invoices/:id/demo-pay', publicLimiter, wrap(async (req, res) => {
+    if (!isTestToken) return res.status(404).json({ error: 'demo payer only exists on testnet with the test token' });
+    const i = await prisma.invoice.findUnique({ where: { id: req.params.id } });
+    if (!i || i.status !== 'pending') return res.status(409).json({ error: 'invoice not payable' });
+    const payer = near.relayer();
+    await payer.callFunctionRaw({ contractId: near.token, methodName: 'mint', args: { account_id: near.relayerId, amount: i.amount }, gas: 30_000_000_000_000n });
+    const tx = await payer.callFunctionRaw({
+      contractId: near.token, methodName: 'ft_transfer', args: { receiver_id: i.receiver, amount: i.amount, memo: i.number },
+      deposit: 1n, gas: 30_000_000_000_000n,
+    });
+    const out = await skypay.confirmInvoicePayment(i.id, { txHash: tx.transaction.hash, senderAccountId: near.relayerId });
+    res.json({ status: out.invoice.status, txHash: tx.transaction.hash, txUrl: near.explorerTx(tx.transaction.hash), payer: near.relayerId, simulatedPayer: true });
+  }));
+
+  // ----------------------------------------------------------------- exports
+  r.get('/api/export/invoices.csv', authenticateToken, wrap(async (req, res) => {
+    const list = await prisma.invoice.findMany({ where: { userId: req.user.id }, orderBy: { createdAt: 'asc' } });
+    res.type('text/csv').attachment('skypay-invoices.csv').send(invoicesCsv(list, (h) => near.explorerTx(h)));
+  }));
+
+  r.get('/api/export/payments.csv', authenticateToken, wrap(async (req, res) => {
+    const list = await prisma.paymentAttempt.findMany({ where: { userId: req.user.id }, include: { invoice: true }, orderBy: { createdAt: 'asc' } });
+    res.type('text/csv').attachment('skypay-payments.csv').send(paymentsCsv(list, (h) => near.explorerTx(h)));
+  }));
+
+  return r;
+}
+
+export default createNearRouter;

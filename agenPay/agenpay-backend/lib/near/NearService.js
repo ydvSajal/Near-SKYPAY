@@ -72,7 +72,7 @@ export class NearService {
 
   async accountExists(id) {
     try {
-      await this.rpc('query', { request_type: 'view_account', finality: 'final', account_id: id });
+      await this.rpc('query', { request_type: 'view_account', finality: 'optimistic', account_id: id });
       return true;
     } catch {
       return false;
