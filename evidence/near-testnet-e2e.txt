@@ -1,0 +1,33 @@
+# SkyPay testnet e2e  2026-11-12T19:52:35.651Z  token=skypay-tusdc-eb844b.testnet (TEST token, not real USDC)
+provisioned company=demo-f740f8.skypay-relayer-88e39d.testnet vault=v-demo-f740f8.skypay-relayer-88e39d.testnet agent=a-demo-f740f8.skypay-relayer-88e39d.testnet
+  sponsor: account_create demo-f740f8.skypay-relayer-88e39d.testnet
+  sponsor: account_create v-demo-f740f8.skypay-relayer-88e39d.testnet (vault contract deployed, all keys deleted)
+  sponsor: account_create a-demo-f740f8.skypay-relayer-88e39d.testnet (function-call key: v-demo-f740f8.skypay-relayer-88e39d.testnet.pay only)
+  sponsor: storage_deposit demo-f740f8.skypay-relayer-88e39d.testnet registered on skypay-tusdc-eb844b.testnet
+company balance: 0 tUSDC
+
+## owner policy via sponsored (gasless) delegate actions - owner holds 0 purchased NEAR
+add_payee pay-e134b7.skypay-relayer-88e39d.testnet: https://testnet.nearblocks.io/txns/2m5cjCCtUsHjfa3mcjV4VNDxi9xWjesPWKEz6EdronbG
+set_agent limits 50/tx 80/day: https://testnet.nearblocks.io/txns/8M8tZXHiHwase235skWK6Z3SvHAAnhumszHS3yZAdzsf
+fund vault 90: https://testnet.nearblocks.io/txns/8x5kTxNudd2iip2ZMAGWLtBS8ba3ay2kDVCLUutv2Gpf
+vault state: {"owner":"demo-f740f8.skypay-relayer-88e39d.testnet","token":"skypay-tusdc-eb844b.testnet","available":"0","reserved":"0"}
+
+## agent payments (restricted function-call key, zero deposit)
+  pay e2e-1 30: ok  https://testnet.nearblocks.io/txns/6bmuhLbDU9CuMEfvb3x54tRV5dBfQJaN11zNXFQnsMs3
+  payee balance: 0
+  pay e2e-1 30: ok  https://testnet.nearblocks.io/txns/CiBwxsRHZKunhhAmgXJUjaaUazjkX8M5u9yAuFekm8yx
+  payee balance after replay: 30 (unchanged = no double spend)
+  pay e2e-2 60: REFUSED -> Contract panicked: exceeds per-payment limit
+  pay e2e-3 50: ok  https://testnet.nearblocks.io/txns/12HsSi9sk9yq9sAyRjYQYAFN2AYQTasWEediZEjVYxzB
+  pay e2e-4 1: REFUSED -> Contract panicked: exceeds daily limit
+  payment record e2e-1: {"request_hash":"2ea49cae1bd2bb977428a59fdb27a2fd1917bb10ba64243ca149406003ddd956","agent":"a-demo-f740f8.skypay-relayer-88e39d.testnet","recipient":"pay-e134b7.skypay-relayer-88e39d.testnet","amount":"30000000","invoice_ref":"INV-E2E","status":"Settled","day":20769}
+
+## sponsor refuses abuse (A22)
+  [transfer NEAR out] REFUSED -> relay refused: only function calls can be sponsored
+  [call unlisted contract] REFUSED -> relay refused: token method not sponsored: mint
+  [fund someone else] REFUSED -> relay refused: funds may only be sent to the company vault
+  [add full-access key] REFUSED -> relay refused: only function calls can be sponsored
+  [revoke agent (allowed)] relayed tx 8VYewYUc3rwDkzjNpScRs6ZZXJi7YhEdhtk31bcKmrY2
+  pay e2e-5 1: REFUSED -> Contract panicked: agent revoked
+
+final vault state: {"owner":"demo-f740f8.skypay-relayer-88e39d.testnet","token":"skypay-tusdc-eb844b.testnet","available":"10000000","reserved":"0"}
