@@ -1,338 +1,186 @@
-# AgenPay — Agentic Payment Infrastructure for Web3 Teams
+# SkyPay: invoices and controlled supplier payments in USDC on NEAR
 
-<div align="center">
+**Track:** Real-World Money (NEAR Hackathon, November 2026) · **Network:** NEAR testnet · **License:** MIT
 
-**AI-Powered Crypto Payment System with Autonomous Agent-Driven Processing**
+SkyPay is a finance workspace for a small agency. You bill clients, they pay in USDC on NEAR, and the
+books update themselves. An AI agent can create invoices and pay approved suppliers, but only inside
+spending rules that a NEAR smart contract enforces. The agent, and SkyPay's own server, cannot
+spend outside those rules.
 
-Agentic Stripe for Web3 • Powered by Sei Network
-
-![CI](https://github.com/ydvSajal/SKYPAY_FINAL/actions/workflows/ci.yml/badge.svg)
-![License](https://img.shields.io/badge/License-MIT-blue)
-![Node](https://img.shields.io/badge/Node.js-18%2B-green)
-![Next.js](https://img.shields.io/badge/Next.js-15-black)
-
-**Live:** [Frontend](https://skypayy.vercel.app) • [Backend API](https://agenpay-backend.onrender.com/health)
-
-</div>
+> **Honesty box.** Everything below runs on **NEAR testnet** with a **test token (tUSDC) that has no value**.
+> Real USDC and cross-chain payment (NEAR Intents) are not live in this build. See [CLAIMS.md](CLAIMS.md)
+> for what is implemented, tested, and proven on-chain, with links.
 
 ---
 
-## Table of Contents
+## For the bookkeeper: what SkyPay does
 
-- [Overview](#overview)
-- [Architecture](#architecture)
-- [Project Structure](#project-structure)
-- [Production Deployment](#production-deployment)
-- [CI/CD](#cicd)
-- [Local Development](#local-development)
-- [API Reference](#api-reference)
-- [Security](#security)
-- [Troubleshooting](#troubleshooting)
-- [License](#license)
+| You want to... | In SkyPay | What you can rely on |
+|---|---|---|
+| Bill a client | Create an invoice (line items, due date) or tell the agent "request 10 USD from x@y.com for design" | Client gets an email with a pay link. Amounts are exact; no rounding. |
+| Know if it's paid | Invoice status: **pending → paid** (or refunded) | "Paid" is set only after SkyPay reads the transfer on NEAR and checks the token, receiving account and amount. A screenshot or a claimed transaction is not enough. One transaction cannot pay two invoices. |
+| Pay a supplier | Choose an approved payee and an amount, or ask the agent | Paid from a separate **operating vault** that you fund. Each payment has a per-payment cap and a daily cap; payees must be approved by you. |
+| Stop the agent | "Revoke agent" | Takes effect on-chain; any further agent payment is refused by the contract. |
+| Close the month | Download `invoices.csv` and `payments.csv` | UTC timestamps, fixed 6-decimal amounts, transaction link per row, spreadsheet-formula injection blocked. |
+| Pay network fees | Nothing | SkyPay sponsors NEAR gas. The company never has to buy NEAR. |
 
----
-
-## Overview
-
-**AgenPay** deploys an AI agent that handles the full crypto payment lifecycle — scheduling, sending, receiving, refunding, and reconciling — autonomously, with Notion as the team-facing interface.
-
-| Feature | Description |
-|---------|-------------|
-| 🤖 **AI Agent** | LangGraph-powered agent (OpenRouter / Gemini / OpenAI) with natural-language payment commands |
-| 💳 **x402 Payments** | HTTP-402 payment protocol on Sei — user signs client-side, facilitator broadcasts on-chain |
-| 🔐 **Wallets** | Privy server wallets + browser wallet connect (RainbowKit/wagmi, sign-in with Ethereum nonce flow) |
-| 🗃️ **Notion Sync** | OAuth-connected workspace sync for invoices and payment tracking |
-| 🛡️ **Admin Portal** | JWT-authenticated admin dashboard with seeded admin account |
-| ⚡ **Automation** | node-cron scheduled payments, monitoring, and reconciliation |
+**What a CSV row means.** `amount_due` and `settled_amount` are USDC stablecoin units (6 decimals), **not**
+bank-deposited dollars. `network_fee_paid_by_merchant` is 0 because fees are sponsored. `transaction_url`
+opens the NEAR block explorer for that payment.
 
 ---
 
-## Architecture
-
-Three deployed services plus a managed database. The frontend never holds private keys for settlement — users sign payment payloads in their own wallet; the facilitator (holding a funded Sei key) verifies and broadcasts.
-
-```mermaid
-flowchart TB
-    subgraph Client["Browser"]
-        UI["Next.js 15 Frontend<br/>(Vercel — skypayy.vercel.app)"]
-        W["User Wallet<br/>(RainbowKit / wagmi)"]
-    end
-
-    subgraph Render["Render (free tier)"]
-        BE["Backend API<br/>Express + LangGraph agent<br/>agenpay-backend.onrender.com"]
-        FAC["x402 Facilitator<br/>verify + settle<br/>agenpay-facilitator.onrender.com"]
-    end
-
-    DB[("Neon PostgreSQL<br/>(Prisma ORM)")]
-    SEI["Sei Testnet<br/>(EVM RPC)"]
-    NOTION["Notion API<br/>(OAuth)"]
-    LLM["OpenRouter / Gemini / OpenAI"]
-    MAIL["SMTP Email"]
-
-    UI -->|"REST + JWT<br/>(CORS: FRONTEND_URL)"| BE
-    W -->|"signs x402 payload"| UI
-    BE -->|"X402_FACILITATOR_URL<br/>+ FACILITATOR_API_KEY"| FAC
-    FAC -->|"broadcast tx<br/>(PRIVATE_KEY signer)"| SEI
-    BE --> DB
-    BE --> NOTION
-    BE --> LLM
-    BE --> MAIL
-```
-
-**Payment flow (x402):**
-
-```mermaid
-sequenceDiagram
-    participant U as User (wallet)
-    participant F as Frontend (Vercel)
-    participant B as Backend (Render)
-    participant X as Facilitator (Render)
-    participant S as Sei Testnet
-
-    U->>F: "Pay invoice"
-    F->>B: request payment requirements
-    B-->>F: 402 + x402 payment requirements
-    U->>F: sign payment payload (in-wallet, key never leaves)
-    F->>B: signed payload
-    B->>X: verify + settle (shared FACILITATOR_API_KEY)
-    X->>S: broadcast transaction
-    S-->>X: tx hash
-    X-->>B: settlement result
-    B-->>F: confirmation + tx hash
-```
-
----
-
-## Project Structure
-
-```
-seiagenpay-main/
-├── .github/workflows/
-│   └── ci.yml                      # CI: install + build gates for all 3 services
-├── render.yaml                     # Render Blueprint (backend + facilitator)
-├── DEPLOY_RENDER.md                # Step-by-step deploy runbook
-├── SECURITY_CHECKLIST.md           # Security guidelines
-├── PRODUCTION_READINESS.md         # Production audit notes
-│
-└── agenPay/
-    ├── agenpay-backend/            # Express API + AI agent (Node 18+, ESM)
-    │   ├── server.js               # App entry: routes, auth, CORS, rate limits
-    │   ├── agent.js                # Agent instantiation
-    │   ├── lib/
-    │   │   ├── AgentPayAgent.js    # LangGraph agent (StateGraph, tools, LLM)
-    │   │   ├── X402PayService.js   # x402 payment protocol handler
-    │   │   ├── WalletService.js    # Privy wallets + Sei balances/transfers
-    │   │   ├── NotionService.js    # Notion OAuth + workspace sync
-    │   │   ├── SchedulingService.js# node-cron jobs (monitoring, recurring)
-    │   │   ├── OKXDexService.js    # DEX token swaps
-    │   │   └── adminRouter.js      # /api/admin portal routes
-    │   ├── prisma/
-    │   │   ├── schema.prisma       # User, Payment, ChatMessage, Admin models
-    │   │   ├── seed.js             # Demo data
-    │   │   └── seedAdmin.js        # Admin account (create-only, safe re-run)
-    │   └── env.example
-    │
-    ├── agenpay-facilitator/        # x402 settlement service (single file)
-    │   ├── index.js                # verify + settle endpoints, Sei broadcaster
-    │   └── env.example
-    │
-    ├── agenpay-frontend/           # Next.js 15 + React 19 (App Router)
-    │   ├── app/
-    │   │   ├── landing/            # Marketing page
-    │   │   ├── auth/               # Login/register + Notion OAuth callback
-    │   │   ├── dashboard/          # Main app: chat, payments, wallet
-    │   │   ├── admin/              # Admin portal UI
-    │   │   ├── docs/               # In-app docs
-    │   │   └── api/chat/route.ts   # AI chat edge route
-    │   ├── components/             # ui/ (Radix), wallet/, landing/
-    │   ├── lib/                    # auth.ts (API client), utils
-    │   └── middleware.ts           # Route protection
-    │
-    ├── start-project.ps1 / .bat    # Local dev startup (Windows)
-    └── tunnel-gateway.js           # Local tunnel helper
-```
-
----
-
-## Production Deployment
-
-| Service | Host | URL | Deploys from |
-|---------|------|-----|--------------|
-| Frontend | Vercel | https://skypayy.vercel.app | `main` (auto) |
-| Backend API | Render (free) | https://agenpay-backend.onrender.com | `main` via `render.yaml` (auto) |
-| Facilitator | Render (free) | https://agenpay-facilitator.onrender.com | `main` via `render.yaml` (auto) |
-| Database | Neon | pooled connection string | — |
-
-> **Free-tier caveat:** Render free services sleep after 15 min idle and cold-start in ~30–50 s. This wipes in-memory agent state and pauses cron loops until the next request. Fine for demo; upgrade to Starter for reliability.
-
-### Environment variables
-
-**Backend** (`agenpay-backend` on Render — Blueprint prompts for all `sync: false` vars):
-
-| Variable | Purpose |
-|----------|---------|
-| `DATABASE_URL` | Neon **pooled** connection string |
-| `JWT_SECRET` | Token signing, strong random (`openssl rand -hex 32`) |
-| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | Seeded admin portal account |
-| `FRONTEND_URL` | Exact Vercel origin, e.g. `https://skypayy.vercel.app` — controls **CORS** and OAuth redirects. No trailing slash. Comma-separate multiple origins. |
-| `X402_FACILITATOR_URL` | `https://agenpay-facilitator.onrender.com` |
-| `FACILITATOR_API_KEY` | Shared secret — **must match facilitator's value** |
-| `PRIVY_APP_ID` / `PRIVY_APP_SECRET` | Privy server wallets |
-| `NOTION_CLIENT_ID` / `NOTION_CLIENT_SECRET` / `NOTION_REDIRECT_URI` | Notion OAuth. Redirect URI = `https://agenpay-backend.onrender.com/api/notion/callback` (must also be allowlisted in the Notion integration settings) |
-| `AI_PROVIDER` | `openrouter` (default) — falls back per key availability |
-| `OPENROUTER_API_KEY` / `GEMINI_API_KEY` / `OPENAI_API_KEY` / `MINIMAX_API_KEY` | LLM provider keys (only the active provider's key required) |
-| `EMAIL_SERVICE` / `EMAIL_USER` / `EMAIL_PASS` / `EMAIL_FROM` | SMTP notifications |
-
-**Facilitator** (`agenpay-facilitator` on Render):
-
-| Variable | Purpose |
-|----------|---------|
-| `PRIVATE_KEY` | Funded Sei testnet wallet key that signs/broadcasts settlements |
-| `FACILITATOR_API_KEY` | Must match backend's value |
-
-**Frontend** (Vercel → Project → Settings → Environment Variables):
-
-| Variable | Purpose |
-|----------|---------|
-| `NEXT_PUBLIC_API_URL` | `https://agenpay-backend.onrender.com` — baked in at **build time**; redeploy after changing |
-
-### First-time deploy runbook
-
-See [DEPLOY_RENDER.md](DEPLOY_RENDER.md) for the full runbook. Short version:
-
-1. **Neon:** create project, copy the pooled connection string.
-2. **Render:** New → Blueprint → point at this repo. Render reads `render.yaml`, creates both services, prompts for env vars. Backend build runs `npm install && npx prisma generate && npx prisma db push && npm run admin:seed`.
-3. **Vercel:** import repo, set root directory to `agenPay/agenpay-frontend`, set `NEXT_PUBLIC_API_URL`.
-4. **Cross-wire:** set backend `FRONTEND_URL` to the Vercel URL, `X402_FACILITATOR_URL` to the facilitator URL, matching `FACILITATOR_API_KEY` on both Render services.
-5. **Notion:** add the backend callback URL to the integration's allowed redirect URIs.
-6. **Verify:** `GET /health` returns 200; log in from the frontend; check browser console for CORS errors.
-
----
-
-## CI/CD
+## How it works
 
 ```mermaid
 flowchart LR
-    PR["Push / PR to main"] --> CI["GitHub Actions CI<br/>(.github/workflows/ci.yml)"]
-    CI --> B["backend: npm ci<br/>prisma validate<br/>syntax check"]
-    CI --> F["facilitator: npm ci<br/>syntax check"]
-    CI --> FE["frontend: npm ci<br/>next build"]
-    PR --> R["Render auto-deploy<br/>(render.yaml Blueprint)"]
-    PR --> V["Vercel auto-deploy"]
+  subgraph Browser
+    O["Owner<br/>(key generated in browser,<br/>never sent to SkyPay)"]
+    C["Client<br/>/invoice/:id"]
+  end
+  subgraph SkyPay backend
+    API["Express API"]
+    R["Sponsor relayer<br/>(pays gas only)"]
+    AG["Agent<br/>(LLM + typed tools)"]
+    OB["Outbox<br/>email / Notion"]
+    DB[("Postgres<br/>invoices, attempts")]
+  end
+  subgraph NEAR
+    CO["Company account<br/>(receives invoice payments)"]
+    V["Operating vault contract<br/>(Rust, no keys)"]
+    AA["Agent account<br/>(can only call vault.pay)"]
+    T["USDC / tUSDC<br/>(NEP-141)"]
+  end
+  C -- "pays USDC" --> T --> CO
+  API -- "verifies tx on-chain" --> T
+  O -- "signed delegate action" --> R -- "relays" --> V
+  AG -- "pay_supplier" --> AA -- "pay(id, payee, amount)" --> V -- "ft_transfer" --> T
+  API --> DB --> OB
 ```
 
-- **CI** ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs on every push/PR to `main`: clean installs (`npm ci`) for all three services — catching lockfile/peer-dependency conflicts before Render does — plus Prisma schema validation and a full Next.js production build.
-- **CD** is platform-native: Render and Vercel both watch `main` and auto-deploy on push. No deploy secrets live in GitHub.
-- Failed CI does **not** block platform deploys (they trigger in parallel). Treat a red ✗ on a commit as "the Render/Vercel build for that commit will likely fail too" — fix forward.
+* **Company account** receives client payments. Its key is created in the owner's browser.
+* **Operating vault** (`contracts/vault`) holds money the owner explicitly moves in. It enforces: caller is a
+  live agent, payee is allow-listed, per-payment limit, daily limit, request expiry, payment-ID replay
+  protection, and reservation-before-transfer with a single release on failure. All its access keys are
+  deleted after deployment, so nobody (including SkyPay) can change its code or move funds outside its rules.
+* **Agent account** holds only a *function-call key* restricted to `vault.pay`. It cannot transfer tokens,
+  change limits, or add keys.
+* **Sponsor relayer** submits the owner's signed [delegate actions](https://docs.near.org/web3-apps/tutorials/meta-transactions)
+  and pays gas. It refuses anything except vault policy methods and funding the company's *own* vault
+  (`lib/near/relayGuard.js`).
+* **Settlement check** (`NearService.evaluateReceipt`) reads NEP-141 `ft_transfer` events emitted *by the pinned
+  token contract* in successful receipts. Client input is never trusted.
+* **Outbox** sends invoice/receipt emails and Notion updates from durable, idempotent jobs. Receipts are only
+  sent after verified settlement. Without credentials it runs in a clearly logged *fixture* mode.
 
 ---
 
-## Local Development
+## Try it (do X → see Y)
 
 ### Prerequisites
 
-- Node.js 18+ (20 recommended)
-- PostgreSQL (local, or reuse a Neon branch)
-- One LLM key (OpenRouter recommended)
+* Node.js 22+, npm, Docker (for Postgres)
+* Optional for rebuilding contracts: Rust stable + `wasm32-unknown-unknown`, `cargo-near` (prebuilt wasm is committed in `agenPay/agenpay-backend/near-artifacts/` with `SHA256SUMS`)
+* Optional: a Gemini / OpenRouter / OpenAI key for the chat agent
 
-### Backend
+### 1. Database and backend
 
 ```bash
+docker run -d --name skypay-pg -e POSTGRES_PASSWORD=skypay -e POSTGRES_DB=skypay -p 5434:5432 postgres:16
 cd agenPay/agenpay-backend
-npm install
-cp env.example .env        # then fill in values
-npm run db:generate
-npm run db:push            # creates tables
-npm run db:seed            # optional demo data
-npm run admin:seed         # admin portal account
-npm run dev                # http://localhost:3001
+npm ci
+cp .env.example .env            # set DATABASE_URL=postgresql://postgres:skypay@localhost:5434/skypay and JWT_SECRET
+npx prisma db push
+npm run near:bootstrap          # creates the testnet sponsor + test token; writes secrets to .env.near (gitignored)
+npm test                        # expect: 6 pass, 0 fail
+node server.js                  # expect: "NEAR testnet: token ..., relayer ..."
 ```
 
-### Facilitator
+`near:bootstrap` funds the sponsor from the public testnet helper. The helper allows about 10 accounts per IP per
+8 hours; if it is rate-limited the script prints an account id to fund manually and exits.
 
-```bash
-cd agenPay/agenpay-facilitator
-npm install
-cp env.example .env        # PRIVATE_KEY (funded Sei testnet wallet) + FACILITATOR_API_KEY
-npm run dev
-```
-
-### Frontend
+### 2. Frontend
 
 ```bash
 cd agenPay/agenpay-frontend
-npm install
+npm ci
 echo "NEXT_PUBLIC_API_URL=http://localhost:3001" > .env.local
-npm run dev                # http://localhost:3000
+npm run build && npx next start -p 3000
 ```
 
-Or on Windows, start everything at once:
+### 3. Walk through it
 
-```powershell
-powershell -ExecutionPolicy Bypass -File "agenPay/start-project.ps1"
+1. Open http://localhost:3000, register, then click **Finance · NEAR** in the dashboard header.
+   → **See:** "Set up your company on NEAR".
+2. Click **Create company NEAR account** (~30 s).
+   → **See:** receiving account, vault and agent account with explorer links. You bought no NEAR.
+3. Click **Owner key backup** and keep the file. (The key exists only in this browser.)
+4. Create an invoice: client email, one line item `Design sprint · 1 · 10`, click **Create & email invoice**.
+   → **See:** `INV-0001 … pending`; the backend log shows the invoice email (fixture mode if no SMTP).
+5. Open the invoice link in a private window. Click **Pay with testnet demo wallet**.
+   → **See:** "Payment verified on NEAR" with the transaction hash; status is **paid** in Finance; a receipt job runs.
+6. Click **Get 100 test tUSDC**, then **Fund vault** with 50.
+   → **See:** "Vault available 50", and an explorer link showing the relayer (not you) paid gas.
+7. Set agent limits 25 per payment / 40 per day, click **Authorize agent**.
+8. Add a payee (any existing testnet account) → it is registered and allow-listed on the vault.
+9. Pay that payee 20 → **settled** with tx link. Pay 30 → **Refused by vault: exceeds per-payment limit**.
+   Pay 21 → **Refused by vault: exceeds daily limit** (20 + 21 > 40).
+10. Click **Revoke agent**, try any payment → **Refused by vault: agent revoked**.
+11. Click **invoices.csv** / **payments.csv** → every row above, with transaction links.
+
+With an LLM key set (`AI_PROVIDER=gemini` + `GEMINI_API_KEY`), the dashboard chat accepts the same actions in plain
+English: *"Request 12.50 USD from client@example.com for logo design"*, *"Pay Pixel Supplies 2 USDC"*. The agent
+cannot pay an address it was given in chat or email; it can only use payees the owner registered.
+
+### Headless checks (no browser)
+
+```bash
+cd agenPay/agenpay-backend
+node scripts/near-e2e.mjs        # vault lifecycle on testnet incl. refusals -> evidence/near-testnet-e2e.txt
+node scripts/api-smoke.mjs       # full HTTP flow (server must be running) -> evidence/api-smoke-testnet.txt
+```
+
+Contract tests (Linux/WSL):
+
+```bash
+cd contracts
+cargo test -p skypay-vault --lib                                   # 19 unit tests
+cargo build --release --target wasm32-unknown-unknown && cargo test -p skypay-vault --test sandbox   # real token, real callbacks
 ```
 
 ---
 
-## API Reference
+## Repository map
 
-Base URL: `https://agenpay-backend.onrender.com` (prod) or `http://localhost:3001` (dev).
-Authenticated routes need `Authorization: Bearer <JWT>`.
+| Path | What |
+|---|---|
+| `contracts/vault` | Operating vault contract (Rust, near-sdk 5.30) + unit and sandbox tests |
+| `contracts/test-ft` | Test NEP-141 token with open mint (testnet stand-in for USDC) |
+| `agenPay/agenpay-backend/lib/near/` | NEAR adapter, relay guard, integer money helpers |
+| `agenPay/agenpay-backend/lib/skypay.js` | Invoice, settlement, payee and vault-payment rules |
+| `agenPay/agenpay-backend/lib/nearRouter.js` | HTTP routes (private + public checkout + CSV) |
+| `agenPay/agenpay-backend/lib/outbox.js` | Idempotent email / Notion jobs |
+| `agenPay/agenpay-frontend/app/finance` | Owner workspace |
+| `agenPay/agenpay-frontend/app/invoice/[id]` | Public checkout page |
+| `evidence/` | Test output and live testnet transcripts with explorer links |
+| `docs/legacy/` | Pre-hackathon (Sei/EVM) documentation, kept for reference |
 
-| Method | Endpoint | Auth | Purpose |
-|--------|----------|------|---------|
-| GET | `/health` | — | Liveness check |
-| POST | `/api/auth/register` | — | Create account, returns JWT |
-| POST | `/api/auth/login` | — | Login, returns JWT (rate-limited) |
-| GET | `/api/dashboard` | ✅ | Dashboard summary |
-| GET | `/api/transactions` | ✅ | Payment/transaction history |
-| POST | `/api/agent/process` | ✅ | Natural-language command to the AI agent |
-| POST | `/api/agent/start` / `stop` | ✅ | Agent lifecycle |
-| GET | `/api/agent/status` | ✅ | Agent state |
-| GET | `/api/wallet` / `status` / `tokens` / `networks` | ✅ | Wallet info |
-| POST | `/api/wallet/create` | ✅ | Create Privy wallet |
-| POST | `/api/wallet/send` | ✅ | Send tokens |
-| POST | `/api/wallet/faucet` | ✅ | Testnet faucet |
-| POST | `/api/wallet/connect/nonce` → `verify` | ✅ | Sign-in-with-wallet flow |
-| POST | `/api/wallet/disconnect` | ✅ | Unlink wallet |
-| GET | `/api/notion/auth-url` | ✅ | Start Notion OAuth |
-| GET | `/api/notion/callback` | — | Notion OAuth redirect target |
-| * | `/api/admin/*` | admin JWT | Admin portal (users, payments, stats) |
+## Hackathon disclosure
 
----
+* **Baseline.** SkyPay (formerly AgenPay) existed before the hackathon as an EVM app on Sei testnet with an AI
+  agent, email and Notion integration. That code is the commit tagged
+  [`baseline-pre-near`](../../tree/baseline-pre-near). All NEAR work is after it:
+  **[compare baseline-pre-near...main](../../compare/baseline-pre-near...main)**.
+* **New during the hackathon:** the vault contract and tests, test token, NEAR adapter and sponsored relay,
+  invoice/settlement model, outbox, CSV exports, agent NEAR tools, Finance and invoice pages, evidence.
+* **Still present but not part of the NEAR submission:** the legacy Sei/x402 payment code (`X402PayService`,
+  facilitator, wagmi wallet connect). It is not used by the NEAR flow.
+* **Tools and libraries:** near-sdk-rs, near-contract-standards, near-workspaces, near-api-js, Express, Prisma,
+  Next.js, LangChain/LangGraph. Code in this hackathon window was written with AI assistance (Claude Code).
+* No competitor code was reused.
 
-## Security
+## Known limitations
 
-- **JWT auth** on all API routes; separate admin JWT for `/api/admin`
-- **CORS** locked to `FRONTEND_URL` origins (comma-separated allowlist)
-- **Rate limiting** — global `/api` limiter + stricter `/api/auth` limiter
-- **Helmet** HTTP security headers
-- **bcryptjs** password hashing
-- **Non-custodial settlement** — users sign x402 payloads in their own wallet; only the facilitator holds a (testnet) hot key
-- **Facilitator API key** — backend↔facilitator calls require the shared `FACILITATOR_API_KEY`
-
-See [SECURITY_CHECKLIST.md](SECURITY_CHECKLIST.md). Known operational task: rotate the Neon database password if it was ever shared in plaintext.
-
----
-
-## Troubleshooting
-
-| Symptom | Fix |
-|---------|-----|
-| CORS error in browser console (`blocked by CORS policy`) | Backend `FRONTEND_URL` must exactly equal the frontend origin (scheme + host, no trailing slash). Update on Render → redeploys automatically. |
-| First request takes 30–50 s | Render free-tier cold start. Retry; consider Starter plan. |
-| `npm install` ERESOLVE on deploy | Peer-dep conflict — CI catches this now. Fix versions locally, regenerate `package-lock.json`, push. |
-| `Cannot find module '@prisma/client'` | `npm run db:generate` |
-| Frontend calls `localhost:3001` in prod | `NEXT_PUBLIC_API_URL` unset at build time on Vercel — set it and redeploy. |
-| Notion OAuth fails | Callback URL missing from the Notion integration's allowed redirect URIs. |
-| Login 429 | Auth rate limiter — wait out the window. |
-
----
-
-## License
-
-MIT © 2024–2026 Sajal (AgenPay Team)
-
----
-
-Built with ❤️ for Web3 Teams by **Sajal** • **Powered by Sei Network** ⚡
+See [CLAIMS.md](CLAIMS.md#limitations). In short: testnet only, test token instead of USDC, no cross-chain
+(NEAR Intents) collection yet, no batches, refunds are not automated, and the owner key lives in browser
+storage (with a downloadable backup).
