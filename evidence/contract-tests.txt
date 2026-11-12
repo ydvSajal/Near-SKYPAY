@@ -1,0 +1,25 @@
+     Running unittests src/lib.rs (target/debug/deps/skypay_vault-f0c9cdfe41461e4a)
+test tests::a13_expired_agent_refused - should panic ... ok
+test tests::a09_unlisted_recipient_refused - should panic ... ok
+test tests::a09_over_per_payment_limit_refused - should panic ... ok
+test tests::pay_rejects_attached_deposit - should panic ... ok
+test tests::a26_random_account_cannot_spend - should panic ... ok
+test tests::a26_agent_cannot_edit_its_own_limits - should panic ... ok
+test tests::expired_payment_request_refused - should panic ... ok
+test tests::a26_non_owner_cannot_set_agent - should panic ... ok
+test tests::a11_same_id_same_payload_does_not_double_spend ... ok
+test tests::a25_owner_withdraws_only_available_funds ... ok
+test tests::a14_success_callback_cannot_be_replayed_to_credit_twice ... ok
+test tests::a25_withdraw_cannot_touch_reserved_funds - should panic ... ok
+test tests::a13_revoked_agent_refused_even_for_prepared_request - should panic ... ok
+test tests::funding_from_wrong_token_or_wrong_sender_is_refunded ... ok
+test tests::a10_second_request_cannot_exceed_daily_cap - should panic ... ok
+test tests::a12_same_id_changed_payload_rejected - should panic ... ok
+test tests::a08_allowed_payment_reserves_then_settles ... ok
+test tests::a14_failed_transfer_releases_reservation_exactly_once ... ok
+test tests::a10_daily_budget_resets_next_day ... ok
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+     Running tests/sandbox.rs (target/debug/deps/sandbox-4f60f3c394613abc)
+test full_vault_scenario_in_sandbox ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.36s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s

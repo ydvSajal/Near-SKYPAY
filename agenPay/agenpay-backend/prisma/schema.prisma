@@ -22,6 +22,12 @@ model User {
   externalWalletAddress String?       // self-custody wallet the user connected (MetaMask, etc.)
   walletProvider        String?       // metamask | walletConnect | coinbaseWallet | ...
   walletNonce           String?       // one-time nonce for connect-signature verification
+  // --- NEAR (hackathon) ---
+  nearAccountId    String?  @unique   // company receiving account (collections land here)
+  nearPublicKey    String?            // owner's browser-held public key (private key never stored)
+  vaultAccountId   String?  @unique   // operating vault contract
+  agentAccountId   String?            // agent account allowed to call vault.pay only
+  agentKeyEnc      String?            // agent function-call key, AES-GCM encrypted with NEAR_KEY_ENC_SECRET
   createdAt        DateTime           @default(now())
   updatedAt        DateTime           @updatedAt
   
@@ -31,6 +37,102 @@ model User {
   agent            Agent?
   paymentRequests  PaymentRequest[]
   outgoingPayments OutgoingPayment[]
+  invoices         Invoice[]
+  payees           Payee[]
+  paymentAttempts  PaymentAttempt[]
+  outboxJobs       OutboxJob[]
+  sponsorLedger    SponsorLedger[]
+}
+
+// ===================== NEAR / hackathon models =====================
+// All money is an integer string in token base units (USDC on NEAR = 6 decimals). Never Float.
+
+model Invoice {
+  id             String    @id @default(cuid())
+  userId         String
+  number         String                      // human number e.g. INV-0001, unique per company
+  customerEmail  String
+  customerName   String?
+  description    String?
+  lineItems      Json                         // [{description, quantity, unitAmount(base units)}]
+  amount         String                       // total, base units
+  asset          String    @default("USDC")
+  assetContract  String                       // pinned NEP-141 contract id
+  decimals       Int       @default(6)
+  network        String    @default("near:testnet")
+  receiver       String                       // company NEAR account that must receive funds (snapshotted)
+  dueDate        DateTime
+  status         String    @default("pending") // pending | paid | refunded | cancelled
+  settledAmount  String?
+  settledTxHash  String?   @unique            // a tx can settle only one invoice
+  settledAt      DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  user     User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  attempts PaymentAttempt[]
+
+  @@unique([userId, number])
+}
+
+model Payee {
+  id          String   @id @default(cuid())
+  userId      String
+  name        String
+  email       String?
+  nearAccount String                          // registered by the owner only; never taken from prompts/emails
+  createdAt   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, nearAccount])
+}
+
+model PaymentAttempt {
+  id          String    @id @default(cuid())
+  userId      String
+  direction   String                           // IN (invoice) | OUT (vault payment)
+  invoiceId   String?
+  paymentId   String    @unique                // idempotency key; for OUT it is the vault payment_id
+  requestHash String?                          // binds id to recipient/amount/ref
+  recipient   String?
+  amount      String
+  asset       String    @default("USDC")
+  network     String    @default("near:testnet")
+  status      String    @default("authorized") // authorized|reserved|submitted|processing|settled|failed|unknown|refunded
+  txHash      String?
+  error       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  invoice Invoice? @relation(fields: [invoiceId], references: [id])
+}
+
+model OutboxJob {
+  id             String    @id @default(cuid())
+  userId         String
+  kind           String                        // receipt_email | notion_invoice
+  idempotencyKey String    @unique
+  payload        Json
+  status         String    @default("pending") // pending | done | failed
+  attempts       Int       @default(0)
+  mode           String?                       // live | fixture (set when processed)
+  lastError      String?
+  runAfter       DateTime  @default(now())
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model SponsorLedger {
+  id        String   @id @default(cuid())
+  userId    String
+  kind      String                             // account_create | storage_deposit | relay | agent_pay
+  detail    String?
+  txHash    String?
+  yoctoCost String   @default("0")
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model Agent {
