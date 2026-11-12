@@ -1,0 +1,75 @@
+# CI — runs on every push/PR to main.
+# CD is handled by the platforms' git integrations (no secrets needed here):
+#   - Render (backend + facilitator) auto-deploys main via render.yaml Blueprint
+#   - Vercel (frontend) auto-deploys main
+# This workflow is the gate: it catches install/lockfile conflicts (the class
+# of failure that broke the Render build) and frontend build breaks *before*
+# the platforms pick the commit up.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend:
+    name: Backend (Express + Prisma)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agenPay/agenpay-backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: agenPay/agenpay-backend/package-lock.json
+      - name: Install (mirrors Render build)
+        run: npm ci
+      - name: Validate Prisma schema
+        run: npx prisma validate
+        env:
+          DATABASE_URL: "postgresql://ci:ci@localhost:5432/ci"
+      - name: Syntax-check server and libs
+        run: |
+          node --check server.js
+          for f in lib/*.js; do node --check "$f"; done
+
+  facilitator:
+    name: Facilitator (x402 settlement)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agenPay/agenpay-facilitator
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: agenPay/agenpay-facilitator/package-lock.json
+      - run: npm ci
+      - run: node --check index.js
+
+  frontend:
+    name: Frontend (Next.js build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agenPay/agenpay-frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: agenPay/agenpay-frontend/package-lock.json
+      - run: npm ci
+      - name: Build
+        run: npm run build
+        env:
+          NEXT_PUBLIC_API_URL: https://agenpay-backend.onrender.com

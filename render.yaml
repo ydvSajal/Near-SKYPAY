@@ -1,0 +1,79 @@
+# Render Blueprint — deploys the two always-on Node services.
+# Frontend (Next.js) goes on Vercel (free, no cold-start). DB is Neon (already provisioned).
+#
+# Free plan caveat: free web services sleep after 15 min idle and cold-start
+# (~30-50s), which wipes in-memory agent state and pauses the monitoring/cron
+# loops until the next request. Fine for demo; upgrade to Starter for reliability.
+#
+# On first "New Blueprint", Render prompts for every `sync: false` var below.
+
+services:
+  - type: web
+    name: agenpay-backend
+    runtime: node
+    rootDir: agenPay/agenpay-backend
+    plan: free
+    # prisma db push creates/updates tables (incl. Admin); admin:seed is create-only.
+    buildCommand: npm install && npx prisma generate && npx prisma db push && npm run admin:seed
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL          # Neon pooled connection string
+        sync: false
+      - key: JWT_SECRET            # strong random string
+        sync: false
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: FRONTEND_URL          # your Vercel domain (OAuth redirects + CORS)
+        sync: false
+      - key: X402_FACILITATOR_URL  # the facilitator service's Render URL
+        sync: false
+      - key: FACILITATOR_API_KEY   # shared secret; must match facilitator below
+        sync: false
+      - key: PRIVY_APP_ID
+        sync: false
+      - key: PRIVY_APP_SECRET
+        sync: false
+      - key: NOTION_CLIENT_ID
+        sync: false
+      - key: NOTION_CLIENT_SECRET
+        sync: false
+      - key: NOTION_REDIRECT_URI   # https://<backend>.onrender.com/api/notion/callback
+        sync: false
+      - key: AI_PROVIDER
+        value: openrouter
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: MINIMAX_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: EMAIL_SERVICE
+        sync: false
+      - key: EMAIL_USER
+        sync: false
+      - key: EMAIL_PASS
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
+
+  - type: web
+    name: agenpay-facilitator
+    runtime: node
+    rootDir: agenPay/agenpay-facilitator
+    plan: free
+    buildCommand: npm install
+    startCommand: npm run dev
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PRIVATE_KEY           # funded Sei wallet key that signs settlements
+        sync: false
+      - key: FACILITATOR_API_KEY   # must match the backend value above
+        sync: false
