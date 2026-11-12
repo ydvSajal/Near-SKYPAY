@@ -1,6 +1,3 @@
-"use client"
-
-import { useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import { Globe, LinkIcon, Users } from "lucide-react"
 
@@ -41,41 +38,10 @@ const socials = [
 ]
 
 export function Footer() {
-  const footerRef = useRef<HTMLElement>(null)
-  const [visible, setVisible] = useState(false)
-
-  useEffect(() => {
-    const el = footerRef.current
-    if (!el) return
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) setVisible(true)
-      },
-      { threshold: 0.05 }
-    )
-    observer.observe(el)
-    return () => observer.disconnect()
-  }, [])
-
   return (
     <footer
-      ref={footerRef}
       className="relative overflow-hidden bg-[hsl(220,30%,98%)] pt-11 md:pt-16"
     >
-      {/* Animated glow that blooms in on scroll */}
-      <div
-        className={`pointer-events-none absolute -bottom-[120px] left-1/2 h-80 w-[680px] origin-bottom rounded-full bg-[radial-gradient(ellipse_at_50%_80%,rgba(251,146,60,0.55)_0%,rgba(196,181,253,0.35)_35%,rgba(147,197,253,0.15)_60%,transparent_75%)] transition-all duration-[1400ms] ease-[cubic-bezier(0.16,1,0.3,1)] md:h-[500px] md:w-[1100px] ${
-          visible
-            ? "-translate-x-1/2 scale-y-100 opacity-100 blur-[55px]"
-            : "-translate-x-1/2 scale-y-[0.3] opacity-0 blur-[20px]"
-        }`}
-      />
-      <div
-        className={`pointer-events-none absolute -bottom-[60px] left-1/2 h-56 w-[460px] origin-bottom rounded-full bg-[radial-gradient(ellipse_at_50%_90%,rgba(251,146,60,0.3)_0%,rgba(196,181,253,0.2)_50%,transparent_75%)] blur-[80px] transition-all delay-200 duration-[1800ms] ease-[cubic-bezier(0.16,1,0.3,1)] md:h-[300px] md:w-[700px] ${
-          visible ? "-translate-x-1/2 scale-x-100 opacity-80" : "-translate-x-1/2 scale-x-[0.4] opacity-0"
-        }`}
-      />
-
       <div className="relative z-10 mx-auto max-w-[1200px] px-4 pb-10 md:px-6 md:pb-14">
         <div className="mb-8 grid gap-7 sm:grid-cols-2 md:mb-12 md:gap-12 lg:grid-cols-[2fr_1fr_1fr_1fr]">
           <div>

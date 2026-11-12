@@ -16,7 +16,7 @@ const invoiceRows = [
     badge: "Pending",
     badgeClass: "text-amber-600 bg-amber-500/10",
     action: "Agent: Sent reminder",
-    actionClass: "text-indigo-500",
+    actionClass: "text-primary",
   },
   {
     client: "TechStart",
@@ -32,7 +32,7 @@ const invoiceRows = [
     badge: "Scheduled",
     badgeClass: "text-blue-600 bg-blue-500/10",
     action: "Agent: Sending Jan 15",
-    actionClass: "text-violet-500",
+    actionClass: "text-primary",
   },
 ]
 
@@ -42,7 +42,7 @@ export function NotionShowcase() {
       <div className="mx-auto max-w-[1200px]">
         <div className="grid items-center gap-6 lg:grid-cols-2 lg:gap-20">
           <Reveal>
-            <h2 className="mb-5 font-serif text-[clamp(24px,8vw,32px)] font-bold leading-tight tracking-tight text-[#0f0f0f] md:text-[clamp(28px,3.5vw,44px)]">
+            <h2 className="mb-5 font-sans text-[clamp(24px,8vw,32px)] font-bold leading-tight tracking-tight text-[#0f0f0f] md:text-[clamp(28px,3.5vw,44px)]">
               Works natively with your Notion workspace
             </h2>
             <p className="mb-8 text-[15px] leading-[1.7] text-gray-600 md:text-base">
@@ -70,8 +70,8 @@ export function NotionShowcase() {
           </Reveal>
 
           <Reveal delay={120}>
-            <div className="rounded-[20px] border border-black/5 bg-[rgba(248,249,252,0.8)] p-1.5">
-              <div className="overflow-hidden rounded-2xl border border-black/5 bg-white shadow-[0_4px_20px_rgba(0,0,0,0.04)]">
+            <div className="rounded-[20px] border border-black/5 bg-slate-50 p-1.5">
+              <div className="overflow-hidden rounded-2xl border border-black/5 bg-white shadow-sm">
                 <div className="flex items-center gap-2 border-b border-black/5 px-5 py-4">
                   <Database size={16} className="text-gray-600" />
                   <span className="text-sm font-semibold">Client Invoices Database</span>

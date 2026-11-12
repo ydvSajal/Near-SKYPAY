@@ -16,10 +16,10 @@ export function CTA() {
 
   return (
     <section className="relative overflow-hidden bg-white px-4 py-14 md:px-6 md:py-20">
-      <div className="pointer-events-none absolute -bottom-[100px] left-1/2 h-80 w-[560px] -translate-x-1/2 rounded-full bg-[radial-gradient(ellipse,rgba(251,146,60,0.25)_0%,rgba(196,181,253,0.2)_40%,transparent_70%)] blur-[80px] md:h-[500px] md:w-[900px]" />
+      
 
       <div className="relative z-10 mx-auto max-w-[700px] text-center">
-        <h2 className="mb-5 font-serif text-[clamp(24px,8vw,34px)] font-bold leading-[1.15] tracking-tight text-[#0f0f0f] md:text-[clamp(28px,4vw,52px)]">
+        <h2 className="mb-5 font-sans text-[clamp(24px,8vw,34px)] font-bold leading-[1.15] tracking-tight text-[#0f0f0f] md:text-[clamp(28px,4vw,52px)]">
           Ready to automate your crypto payments?
         </h2>
         <p className="mb-7 text-[15px] leading-[1.7] text-gray-600 md:mb-10 md:text-[17px]">
@@ -30,7 +30,7 @@ export function CTA() {
         <div className="mb-8 flex flex-wrap justify-center gap-3">
           <Link
             href="/auth/login"
-            className="inline-flex items-center gap-2 rounded-full bg-[#0f0f0f] px-[18px] py-[11px] text-[13px] font-semibold text-white shadow-[0_4px_20px_rgba(0,0,0,0.15)] transition-transform hover:-translate-y-px md:px-7 md:py-3.5 md:text-[15px]"
+            className="inline-flex items-center gap-2 rounded-full bg-[#0f0f0f] px-[18px] py-[11px] text-[13px] font-semibold text-white shadow-sm transition-transform  md:px-7 md:py-3.5 md:text-[15px]"
           >
             Start Your Agent Free
             <ArrowRight size={16} />
@@ -64,11 +64,11 @@ export function CTA() {
               placeholder="Enter your email for agent updates"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-full border border-black/10 bg-white/90 px-5 py-3 text-sm outline-none transition-colors focus:border-indigo-400 sm:w-[260px]"
+              className="w-full rounded-full border border-black/10 bg-white px-5 py-3 text-sm outline-none transition-colors focus:border-slate-200 sm:w-[260px]"
             />
             <button
               type="submit"
-              className="rounded-full bg-indigo-500 px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-indigo-600"
+              className="rounded-full bg-primary px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-primary"
             >
               Get Agent Updates
             </button>

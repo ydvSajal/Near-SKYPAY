@@ -5,21 +5,21 @@ const steps = [
   {
     num: "01",
     Icon: Database,
-    iconClass: "text-indigo-500 bg-indigo-500/10",
+    iconClass: "text-slate-600",
     title: "Connect Notion",
     desc: "Link your existing Notion database or use our template. Your payment data stays in Notion where you already work.",
   },
   {
     num: "02",
     Icon: Bot,
-    iconClass: "text-violet-500 bg-violet-500/10",
+    iconClass: "text-slate-600",
     title: "Agent Activates",
     desc: "SKYPay AI monitors your Notion database 24/7, automatically creating invoices, scheduling payments, and handling follow-ups.",
   },
   {
     num: "03",
     Icon: Zap,
-    iconClass: "text-orange-500 bg-orange-500/10",
+    iconClass: "text-slate-600",
     title: "Payments Flow",
     desc: "X402Pay processes all crypto transactions while your agent handles scheduling, reminders, refunds, and updates your Notion automatically.",
   },
@@ -38,10 +38,10 @@ export function HowItWorks() {
       <section className="bg-white px-4 py-14 md:px-6 md:py-20">
         <div className="mx-auto max-w-[1200px]">
           <Reveal className="mb-10 text-center md:mb-14">
-            <h2 className="mb-4 font-serif text-[clamp(24px,8vw,32px)] font-bold leading-tight tracking-tight text-[#0f0f0f] md:text-[clamp(28px,4vw,48px)]">
-              Set it up once,
+            <h2 className="mb-4 font-sans text-[clamp(24px,8vw,32px)] font-bold leading-tight tracking-tight text-[#0f0f0f] md:text-[clamp(28px,4vw,48px)]">
+              Connect your workspace.
               <br />
-              agent handles everything
+              Put payments in motion.
             </h2>
             <p className="mx-auto max-w-[520px] text-[15px] leading-[1.7] text-gray-600 md:text-base">
               Connect your Notion workspace and let SKYPay&apos;s AI agent automate
@@ -52,7 +52,7 @@ export function HowItWorks() {
           <div className="grid gap-3.5 md:grid-cols-3 md:gap-6">
             {steps.map(({ num, Icon, iconClass, title, desc }, i) => (
               <Reveal key={num} delay={i * 90}>
-                <div className="h-full rounded-[20px] border border-black/5 bg-[rgba(248,249,252,0.6)] p-6 text-center transition-all duration-200 hover:-translate-y-1 hover:shadow-[0_12px_40px_rgba(0,0,0,0.08)] md:px-7 md:py-9">
+                <div className="h-full rounded-lg border border-black/5 bg-slate-50 p-6 text-center transition-all duration-200  hover:shadow-sm md:px-7 md:py-9">
                   <div
                     className={`mx-auto mb-5 flex h-[60px] w-[60px] items-center justify-center rounded-2xl ${iconClass}`}
                   >

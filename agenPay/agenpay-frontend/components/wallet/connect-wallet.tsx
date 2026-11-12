@@ -84,7 +84,7 @@ export function ConnectWallet({ linkedAddress, onLinked, onDisconnected }: Conne
             return (
               <Button
                 onClick={openConnectModal}
-                className="h-10 w-full rounded-xl bg-gradient-to-r from-orange-600 to-amber-500 text-white shadow-md shadow-orange-500/25 transition hover:from-orange-700 hover:to-amber-600"
+                className="h-10 w-full rounded-xl bg-primary   text-white shadow-md  transition  "
               >
                 <Wallet className="mr-2 h-4 w-4" />
                 Connect wallet
@@ -110,7 +110,7 @@ export function ConnectWallet({ linkedAddress, onLinked, onDisconnected }: Conne
               <button
                 type="button"
                 onClick={openChainModal}
-                className="flex h-10 items-center gap-1.5 rounded-xl border border-white/80 bg-white/70 px-2.5 text-sm shadow-sm backdrop-blur transition hover:bg-white"
+                className="flex h-10 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2.5 text-sm shadow-sm  transition hover:bg-white"
               >
                 {chain.hasIcon && chain.iconUrl && (
                   // eslint-disable-next-line @next/next/no-img-element
@@ -121,7 +121,7 @@ export function ConnectWallet({ linkedAddress, onLinked, onDisconnected }: Conne
               <button
                 type="button"
                 onClick={openAccountModal}
-                className="flex h-10 flex-1 items-center justify-between rounded-xl border border-white/80 bg-white/70 px-3 font-mono text-sm shadow-sm backdrop-blur transition hover:bg-white"
+                className="flex h-10 flex-1 items-center justify-between rounded-xl border border-slate-200 bg-white px-3 font-mono text-sm shadow-sm  transition hover:bg-white"
               >
                 <span className="truncate">{account.displayName}</span>
                 <ChevronDown className="ml-2 h-3.5 w-3.5 shrink-0 text-slate-500" />
@@ -152,7 +152,7 @@ export function ConnectWallet({ linkedAddress, onLinked, onDisconnected }: Conne
       )}
 
       {isLinked && (
-        <div className="flex items-center justify-between gap-2 rounded-xl border border-emerald-200/70 bg-emerald-50/70 px-3 py-2 backdrop-blur">
+        <div className="flex items-center justify-between gap-2 rounded-xl border border-emerald-200/70 bg-emerald-50/70 px-3 py-2 ">
           <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700">
             <CheckCircle className="h-3.5 w-3.5" />
             Wallet linked
@@ -162,7 +162,7 @@ export function ConnectWallet({ linkedAddress, onLinked, onDisconnected }: Conne
             disabled={busy}
             variant="outline"
             size="sm"
-            className="h-7 border-emerald-300/70 bg-white/60 text-xs hover:bg-white"
+            className="h-7 border-emerald-300/70 bg-white text-xs hover:bg-white"
           >
             Disconnect
           </Button>

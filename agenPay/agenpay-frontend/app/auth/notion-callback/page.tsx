@@ -157,11 +157,11 @@ function NotionCallbackContent() {
 
   if (status === 'processing') {
     return (
-      <div className="min-h-screen bg-[radial-gradient(circle_at_12%_-8%,#ffdcbc_0%,#fffaf4_40%,#f2faf6_68%,#d6efe1_100%)] flex items-center justify-center p-4 text-slate-900">
-        <Card className="w-full max-w-md overflow-hidden rounded-3xl border border-white/70 bg-white/65 shadow-[0_24px_80px_rgba(154,52,18,0.14)] backdrop-blur-2xl">
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 text-slate-900">
+        <Card className="w-full max-w-md overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm ">
           <CardContent className="pt-6">
             <div className="text-center">
-              <div className="mx-auto mb-4 w-16 h-16 bg-gradient-to-br from-orange-500 to-amber-600 rounded-2xl flex items-center justify-center shadow-lg shadow-orange-500/30">
+              <div className="mx-auto mb-4 w-16 h-16 bg-primary   rounded-2xl flex items-center justify-center shadow-lg ">
                 <RefreshCw className="h-8 w-8 text-white animate-spin" />
               </div>
               <h2 className="text-xl font-bold text-gray-900 mb-2">
@@ -182,10 +182,10 @@ function NotionCallbackContent() {
 
   if (status === 'success') {
     return (
-      <div className="min-h-screen bg-[radial-gradient(circle_at_12%_-8%,#ffdcbc_0%,#fffaf4_40%,#f2faf6_68%,#d6efe1_100%)] flex items-center justify-center p-4 text-slate-900">
-        <Card className="w-full max-w-md overflow-hidden rounded-3xl border border-white/70 bg-white/65 shadow-[0_24px_80px_rgba(154,52,18,0.14)] backdrop-blur-2xl">
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 text-slate-900">
+        <Card className="w-full max-w-md overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm ">
           <CardHeader className="text-center">
-            <div className="mx-auto mb-4 w-16 h-16 bg-gradient-to-br from-green-600 to-emerald-500 rounded-2xl flex items-center justify-center shadow-lg shadow-emerald-500/30">
+            <div className="mx-auto mb-4 w-16 h-16 bg-primary   rounded-2xl flex items-center justify-center shadow-lg shadow-emerald-500/30">
               <CheckCircle className="h-8 w-8 text-white" />
             </div>
             <CardTitle className="text-2xl font-bold text-green-900">
@@ -221,10 +221,10 @@ function NotionCallbackContent() {
 
   if (status === 'error') {
     return (
-      <div className="min-h-screen bg-[radial-gradient(circle_at_12%_-8%,#ffdcbc_0%,#fffaf4_40%,#f2faf6_68%,#d6efe1_100%)] flex items-center justify-center p-4 text-slate-900">
-        <Card className="w-full max-w-md overflow-hidden rounded-3xl border border-white/70 bg-white/65 shadow-[0_24px_80px_rgba(154,52,18,0.14)] backdrop-blur-2xl">
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 text-slate-900">
+        <Card className="w-full max-w-md overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm ">
           <CardHeader className="text-center">
-            <div className="mx-auto mb-4 w-16 h-16 bg-gradient-to-r from-red-600 to-orange-600 rounded-2xl flex items-center justify-center shadow-lg shadow-red-500/25">
+            <div className="mx-auto mb-4 w-16 h-16 bg-primary from-red-600  rounded-2xl flex items-center justify-center shadow-lg shadow-red-500/25">
               <AlertCircle className="h-8 w-8 text-white" />
             </div>
             <CardTitle className="text-2xl font-bold text-red-900">

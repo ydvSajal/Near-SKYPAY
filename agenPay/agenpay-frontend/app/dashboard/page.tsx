@@ -97,16 +97,16 @@ function formatUsd(value: number) {
   return value.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 2 })
 }
 
-// Shared glass surface — matches the auth pages (tricolour glassmorphism).
+// Shared surface for payment operations.
 const glassCard =
-  "rounded-2xl border border-white/70 bg-white/65 shadow-[0_16px_50px_rgba(154,52,18,0.10)] backdrop-blur-2xl"
+  "rounded-lg border border-slate-200 bg-white "
 
 function StatTile({
   label,
   value,
   helper,
   icon: Icon,
-  iconTint = "from-orange-500 to-amber-500",
+  
   meter,
   action,
 }: {
@@ -114,7 +114,6 @@ function StatTile({
   value: React.ReactNode
   helper?: React.ReactNode
   icon: React.ComponentType<{ className?: string }>
-  iconTint?: string
   meter?: number
   action?: React.ReactNode
 }) {
@@ -122,8 +121,8 @@ function StatTile({
     <Card className={`${glassCard} gap-0 p-4`}>
       <div className="flex items-center justify-between">
         <p className="text-xs font-medium text-slate-500">{label}</p>
-        <span className={`flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br ${iconTint} shadow-sm`}>
-          <Icon className="h-3.5 w-3.5 text-white" />
+        <span className={`flex h-7 w-7 items-center justify-center text-slate-500`}>
+          <Icon className="h-4 w-4" />
         </span>
       </div>
       <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">{value}</p>
@@ -131,7 +130,7 @@ function StatTile({
       {typeof meter === "number" && (
         <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-slate-200/70">
           <div
-            className="h-full rounded-full bg-gradient-to-r from-orange-500 to-green-600 transition-all"
+            className="h-full rounded-full bg-primary   transition-all"
             style={{ width: `${Math.min(100, Math.max(0, meter))}%` }}
           />
         </div>
@@ -317,13 +316,13 @@ export default function Dashboard() {
   }
 
   const pageBg =
-    "bg-[radial-gradient(circle_at_12%_-8%,#ffdcbc_0%,#fffaf4_40%,#f2faf6_68%,#d6efe1_100%)]"
+    "bg-slate-50"
 
   if (isLoading) {
     return (
       <div className={`flex h-screen items-center justify-center ${pageBg}`}>
         <div className="text-center">
-          <RefreshCw className="mx-auto mb-4 h-8 w-8 animate-spin text-orange-500" />
+          <RefreshCw className="mx-auto mb-4 h-8 w-8 animate-spin text-primary" />
           <p className="text-sm text-slate-500">Loading dashboard...</p>
         </div>
       </div>
@@ -340,7 +339,7 @@ export default function Dashboard() {
               <p className="mb-4 text-slate-600">Failed to load dashboard</p>
               <Button
                 onClick={loadDashboardData}
-                className="rounded-xl bg-gradient-to-r from-orange-600 to-amber-500 text-white hover:from-orange-700 hover:to-amber-600"
+                className="rounded-xl bg-primary   text-white  "
               >
                 <RefreshCw className="mr-2 h-4 w-4" />
                 Retry
@@ -352,28 +351,28 @@ export default function Dashboard() {
     )
   }
 
-  const walletUsd = Number(dashboardData.wallet?.balance.USD || 0)
+  const walletUsd = Number(dashboardData.wallet?.balance?.USD || 0)
   const recentTransactions = dashboardData.transactions.slice(0, 8)
   const initials = (user?.name || user?.email || "?").trim().charAt(0).toUpperCase()
 
   return (
-    <div className={`relative flex h-screen flex-col overflow-hidden ${pageBg} text-slate-900`}>
-      {/* Ambient tricolour orbs */}
-      <div className="pointer-events-none absolute -left-40 -top-40 h-96 w-96 rounded-full bg-orange-300/25 blur-3xl" />
-      <div className="pointer-events-none absolute -bottom-40 -right-40 h-96 w-96 rounded-full bg-emerald-300/25 blur-3xl" />
+    <div className={`dashboard-shell relative flex min-h-screen flex-col lg:h-screen lg:overflow-hidden ${pageBg} text-slate-900`}>
+      
+      
+      
 
       {/* Header */}
-      <header className="relative z-10 flex h-16 shrink-0 items-center justify-between border-b border-white/60 bg-white/55 px-6 backdrop-blur-2xl">
+      <header className="relative z-10 flex h-16 shrink-0 items-center justify-between border-b border-slate-200 bg-white px-6 ">
         <div className="flex items-center gap-3">
           <Link
             href="/#hero"
             aria-label="Back to SKYPay home"
             className="flex items-center gap-2 transition-opacity hover:opacity-70"
           >
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-orange-500 to-amber-600 shadow-sm">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary   shadow-sm">
               <CreditCard className="h-4 w-4 text-white" />
             </span>
-            <span className="font-serif text-xl font-semibold">SKYPay</span>
+            <span className="font-sans text-xl font-semibold">SKYPay</span>
           </Link>
           <span className="hidden text-sm text-slate-500 sm:inline">Dashboard</span>
         </div>
@@ -381,7 +380,7 @@ export default function Dashboard() {
         <div className="flex items-center gap-2">
           <Badge
             variant="outline"
-            className="gap-1.5 border-white/70 bg-white/60 py-1 text-xs font-medium text-slate-700 backdrop-blur"
+            className="gap-1.5 border-slate-200 bg-white py-1 text-xs font-medium text-slate-700 "
           >
             <span
               className="h-1.5 w-1.5 rounded-full"
@@ -394,7 +393,7 @@ export default function Dashboard() {
             variant={dashboardData.agent.isRunning ? "destructive" : "default"}
             size="sm"
             onClick={handleAgentToggle}
-            className={dashboardData.agent.isRunning ? "" : "bg-gradient-to-r from-orange-600 to-amber-500 text-white hover:from-orange-700 hover:to-amber-600"}
+            className={dashboardData.agent.isRunning ? "" : "bg-primary   text-white  "}
           >
             {dashboardData.agent.isRunning ? (
               <>
@@ -414,7 +413,7 @@ export default function Dashboard() {
             size="icon"
             onClick={loadDashboardData}
             aria-label="Refresh"
-            className="border-white/70 bg-white/60 backdrop-blur hover:bg-white"
+            className="border-slate-200 bg-white  hover:bg-white"
           >
             <RefreshCw className="h-4 w-4" />
           </Button>
@@ -422,7 +421,7 @@ export default function Dashboard() {
           <div className="mx-1 h-6 w-px bg-slate-300/60" />
 
           <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-orange-500 to-amber-600 text-xs font-semibold text-white">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary   text-xs font-semibold text-white">
               {initials}
             </div>
             <div className="hidden leading-tight md:block">
@@ -436,7 +435,7 @@ export default function Dashboard() {
             size="icon"
             onClick={logout}
             aria-label="Log out"
-            className="hover:bg-white/60"
+            className="hover:bg-white"
           >
             <LogOut className="h-4 w-4" />
           </Button>
@@ -444,7 +443,7 @@ export default function Dashboard() {
       </header>
 
       {/* Content — fills the viewport; only inner panels scroll */}
-      <main className="relative z-10 min-h-0 flex-1 overflow-hidden px-4 py-4 lg:px-6">
+      <main className="relative z-10 min-h-0 flex-1 lg:overflow-hidden px-4 py-4 lg:px-6">
         <div className="mx-auto flex h-full max-w-[1400px] flex-col gap-4">
           <div className="shrink-0">
             <h1 className="text-xl font-semibold tracking-tight">
@@ -461,7 +460,6 @@ export default function Dashboard() {
               <StatTile
                 label="Wallet balance"
                 icon={Wallet}
-                iconTint="from-orange-500 to-amber-500"
                 value={formatUsd(walletUsd)}
                 helper={`${dashboardData.wallet.balance.ETH} ETH`}
               />
@@ -469,14 +467,13 @@ export default function Dashboard() {
               <StatTile
                 label="Wallet balance"
                 icon={Wallet}
-                iconTint="from-orange-500 to-amber-500"
                 value="No wallet"
                 helper="Create a wallet to start sending payments"
                 action={
                   <Button
                     size="sm"
                     onClick={handleCreateWallet}
-                    className="h-7 w-full rounded-lg bg-gradient-to-r from-orange-600 to-amber-500 text-xs text-white hover:from-orange-700 hover:to-amber-600"
+                    className="h-7 w-full rounded-lg bg-primary   text-xs text-white  "
                   >
                     <Plus className="h-3 w-3" />
                     Create wallet
@@ -488,7 +485,6 @@ export default function Dashboard() {
             <StatTile
               label="Total sent"
               icon={ArrowUpRight}
-              iconTint="from-sky-500 to-blue-600"
               value={formatUsd(dashboardData.analytics.totalSent)}
               helper="All-time"
             />
@@ -496,7 +492,6 @@ export default function Dashboard() {
             <StatTile
               label="Total received"
               icon={ArrowDownLeft}
-              iconTint="from-green-600 to-emerald-500"
               value={formatUsd(dashboardData.analytics.totalReceived)}
               helper="All-time"
             />
@@ -504,7 +499,6 @@ export default function Dashboard() {
             <StatTile
               label="Success rate"
               icon={ShieldCheck}
-              iconTint="from-violet-500 to-indigo-600"
               value={`${dashboardData.analytics.successRate.toFixed(1)}%`}
               helper={`${dashboardData.analytics.totalTransactions} transactions`}
               meter={dashboardData.analytics.successRate}
@@ -521,7 +515,7 @@ export default function Dashboard() {
                     <p className="text-xs font-medium text-slate-500">Mission control</p>
                     <h2 className="mt-0.5 text-base font-semibold">Natural-language payments</h2>
                   </div>
-                  <Sparkles className="h-4 w-4 text-orange-500" />
+                  <Sparkles className="h-4 w-4 text-primary" />
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <Button
@@ -529,7 +523,7 @@ export default function Dashboard() {
                     variant="outline"
                     size="sm"
                     onClick={() => setMessage("Invoice SKY Corp for 0.15 ETH")}
-                    className="border-white/80 bg-white/60 backdrop-blur hover:bg-white"
+                    className="border-slate-200 bg-white  hover:bg-white"
                   >
                     Invoice 0.15 ETH
                   </Button>
@@ -538,7 +532,7 @@ export default function Dashboard() {
                     variant="outline"
                     size="sm"
                     onClick={() => setMessage("Send 0.10 ETH to 0x123...")}
-                    className="border-white/80 bg-white/60 backdrop-blur hover:bg-white"
+                    className="border-slate-200 bg-white  hover:bg-white"
                   >
                     Send 0.10 ETH
                   </Button>
@@ -547,7 +541,7 @@ export default function Dashboard() {
                     variant="outline"
                     size="sm"
                     onClick={() => setMessage("Show analytics for this week")}
-                    className="border-white/80 bg-white/60 backdrop-blur hover:bg-white"
+                    className="border-slate-200 bg-white  hover:bg-white"
                   >
                     Weekly analytics
                   </Button>
@@ -562,11 +556,11 @@ export default function Dashboard() {
                   </p>
                 </div>
 
-                <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-white/70 bg-white/45 p-3">
+                <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-slate-200 bg-white p-3">
                   <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
                     {chatHistory.length === 0 && (
                       <div className="rounded-xl border border-dashed border-slate-300/70 p-6 text-center">
-                        <CreditCard className="mx-auto mb-2 h-6 w-6 text-orange-500" />
+                        <CreditCard className="mx-auto mb-2 h-6 w-6 text-primary" />
                         <h3 className="text-sm font-semibold">Welcome to SKYPay</h3>
                         <p className="mt-1 text-xs text-slate-500">
                           Use plain English to trigger secure payment operations.
@@ -584,8 +578,8 @@ export default function Dashboard() {
                         <div
                           className={`max-w-[90%] rounded-xl px-3 py-2 text-sm shadow-sm sm:max-w-[78%] ${
                             msg.role === "user"
-                              ? "bg-gradient-to-r from-orange-600 to-amber-500 text-white"
-                              : "border border-white/70 bg-white/80 text-slate-900"
+                              ? "bg-primary   text-white"
+                              : "border border-slate-200 bg-white text-slate-900"
                           }`}
                         >
                           <div className="whitespace-pre-wrap leading-5">{msg.content}</div>
@@ -598,7 +592,7 @@ export default function Dashboard() {
 
                     {isProcessing && (
                       <div className="flex justify-start">
-                        <div className="rounded-lg border border-white/70 bg-white/80 px-3 py-2 text-xs shadow-sm">
+                        <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs shadow-sm">
                           <div className="flex items-center gap-1.5 text-slate-500">
                             <RefreshCw className="h-3.5 w-3.5 animate-spin" />
                             <span>Processing...</span>
@@ -623,14 +617,14 @@ export default function Dashboard() {
                         value={message}
                         onChange={(e) => setMessage(e.target.value)}
                         placeholder="Type a command, e.g. Invoice SKY Corp for 0.15 ETH"
-                        className="h-10 flex-1 border-white/80 bg-white/70 text-sm backdrop-blur focus-visible:ring-orange-400"
+                        className="h-10 flex-1 border-slate-200 bg-white text-sm  focus-visible:ring-ring"
                         disabled={isProcessing}
                       />
                       <Button
                         type="submit"
                         size="icon"
                         disabled={isProcessing || !message.trim()}
-                        className="h-10 w-10 bg-gradient-to-r from-orange-600 to-amber-500 text-white hover:from-orange-700 hover:to-amber-600"
+                        className="h-10 w-10 bg-primary   text-white  "
                       >
                         <Send className="h-4 w-4" />
                       </Button>
@@ -651,7 +645,7 @@ export default function Dashboard() {
                       variant="outline"
                       size="sm"
                       onClick={handleRequestFaucet}
-                      className="h-7 border-white/80 bg-white/60 text-xs backdrop-blur hover:bg-white"
+                      className="h-7 border-slate-200 bg-white text-xs  hover:bg-white"
                     >
                       <Plus className="h-3 w-3" />
                       Faucet
@@ -660,7 +654,7 @@ export default function Dashboard() {
                   <button
                     type="button"
                     onClick={handleCopyAddress}
-                    className="flex items-center gap-1.5 rounded-lg border border-white/80 bg-white/50 px-2.5 py-2 font-mono text-xs text-slate-600 transition-colors hover:bg-white"
+                    className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-2 font-mono text-xs text-slate-600 transition-colors hover:bg-white"
                   >
                     <span className="truncate">{dashboardData.wallet.address}</span>
                     {copied ? <Check className="h-3 w-3 shrink-0 text-[#0ca30c]" /> : <Copy className="h-3 w-3 shrink-0" />}
@@ -672,20 +666,20 @@ export default function Dashboard() {
               <Card className={`${glassCard} shrink-0 gap-3 p-4`}>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-green-600 to-emerald-500 shadow-sm">
+                    <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary   shadow-sm">
                       <Wallet className="h-3.5 w-3.5 text-white" />
                     </span>
                     <p className="text-sm font-semibold">Connected wallet</p>
                   </div>
                   {dashboardData.externalWallet?.provider && (
-                    <span className="rounded-full border border-white/70 bg-white/60 px-2 py-0.5 text-[11px] capitalize text-slate-600 backdrop-blur">
+                    <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] capitalize text-slate-600 ">
                       {dashboardData.externalWallet.provider}
                     </span>
                   )}
                 </div>
 
                 {dashboardData.externalWallet ? (
-                  <div className="rounded-xl border border-white/70 bg-white/50 p-3">
+                  <div className="rounded-xl border border-slate-200 bg-white p-3">
                     <p className="truncate font-mono text-xs text-slate-600">
                       {dashboardData.externalWallet.address}
                     </p>
@@ -714,7 +708,7 @@ export default function Dashboard() {
               <Card className={`${glassCard} shrink-0 gap-3 p-4`}>
                 <p className="text-xs font-medium text-slate-500">Integrations</p>
                 <div className="space-y-2">
-                  <div className="flex items-center justify-between rounded-lg border border-white/70 bg-white/50 px-3 py-2 text-sm">
+                  <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
                     <span className="text-slate-600">Notion</span>
                     {dashboardData.user.hasNotionIntegration ? (
                       <Badge className="bg-[#0ca30c] text-white">Connected</Badge>
@@ -722,13 +716,13 @@ export default function Dashboard() {
                       <Button
                         size="sm"
                         onClick={handleConnectNotion}
-                        className="h-7 rounded-lg bg-gradient-to-r from-orange-600 to-amber-500 text-xs text-white hover:from-orange-700 hover:to-amber-600"
+                        className="h-7 rounded-lg bg-primary   text-xs text-white  "
                       >
                         Connect
                       </Button>
                     )}
                   </div>
-                  <div className="flex items-center justify-between rounded-lg border border-white/70 bg-white/50 px-3 py-2 text-sm">
+                  <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
                     <span className="text-slate-600">Wallet</span>
                     {dashboardData.user.hasWallet ? (
                       <Badge className="bg-[#0ca30c] text-white">Created</Badge>
@@ -736,7 +730,7 @@ export default function Dashboard() {
                       <Badge variant="outline">Not created</Badge>
                     )}
                   </div>
-                  <div className="flex items-center justify-between rounded-lg border border-white/70 bg-white/50 px-3 py-2 text-sm">
+                  <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
                     <span className="text-slate-600">Agent</span>
                     <Badge
                       className={dashboardData.agent.isRunning ? "bg-[#2a78d6] text-white" : ""}
@@ -746,7 +740,7 @@ export default function Dashboard() {
                     </Badge>
                   </div>
                 </div>
-                <div className="flex items-center gap-1.5 border-t border-white/60 pt-2 text-xs text-slate-500">
+                <div className="flex items-center gap-1.5 border-t border-slate-200 pt-2 text-xs text-slate-500">
                   <Bot className="h-3.5 w-3.5" />
                   {dashboardData.agent.lastActivity
                     ? `Last activity ${new Date(dashboardData.agent.lastActivity).toLocaleString()}`
@@ -756,12 +750,12 @@ export default function Dashboard() {
 
               {/* Recent transactions — flexes and scrolls internally */}
               <Card className={`${glassCard} flex min-h-[220px] flex-1 flex-col gap-0 overflow-hidden p-0`}>
-                <CardHeader className="shrink-0 border-b border-white/60 px-4 py-3">
+                <CardHeader className="shrink-0 border-b border-slate-200 px-4 py-3">
                   <CardTitle className="text-sm font-semibold">Recent transactions</CardTitle>
                 </CardHeader>
                 <div className="min-h-0 flex-1 overflow-y-auto">
                   {recentTransactions.length > 0 ? (
-                    <ul className="divide-y divide-white/60">
+                    <ul className="divide-y divide-slate-100">
                       {recentTransactions.map((tx) => {
                         const meta = getStatusMeta(tx.status)
                         const isIncoming = tx.type.toLowerCase() === "incoming"
