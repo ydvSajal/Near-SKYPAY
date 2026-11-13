@@ -104,7 +104,7 @@ const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
 export async function dashboardStats(prisma, userId) {
   const [invoices, payments] = await Promise.all([
     prisma.invoice.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } }),
-    prisma.paymentAttempt.findMany({ where: { userId, direction: 'OUT' }, orderBy: { createdAt: 'desc' }, take: 50 }),
+    prisma.paymentAttempt.findMany({ where: { userId, direction: 'OUT' }, orderBy: { createdAt: 'desc' }, take: 50, include: { batch: true } }),
   ]);
   const dec = invoices[0]?.decimals ?? 6;
   const f = (v) => fmt(v, dec);
@@ -119,7 +119,7 @@ export async function dashboardStats(prisma, userId) {
   ];
   const rows = [
     ...invoices.map((i) => ({ at: i.createdAt, text: `${i.number} · ${i.customerName || i.customerEmail} · ${f(i.amount)} USDC · ${cap(i.status)}` })),
-    ...payments.map((p) => ({ at: p.createdAt, text: `Supplier payment · ${p.recipient || 'payee'} · ${f(p.amount)} USDC · ${cap(p.status)}` })),
+    ...payments.map((p) => ({ at: p.createdAt, text: `${p.batch ? `Batch "${p.batch.label}"` : 'Supplier payment'} · ${p.recipient || 'payee'} · ${f(p.amount)} USDC · ${cap(p.status)}` })),
   ].sort((a, b) => b.at - a.at).slice(0, 8).map((r) => r.text);
   return { kpis, recent: rows.length ? rows : ['No activity yet.'] };
 }

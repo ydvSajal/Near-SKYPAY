@@ -20,8 +20,9 @@ interface NearStatus {
   companyBalance?: string; vaultAvailable?: string; vaultReserved?: string; agentPolicy?: AgentPolicy | null
   links?: { company: string; vault: string; agent: string }
 }
-interface Payee { id: string; name: string; nearAccount: string; allowListedOnChain: boolean }
-interface VaultPayment { id: string; paymentId: string; recipient: string; amountFormatted: string; status: string; error: string | null; url: string | null; createdAt: string }
+interface Payee { id: string; name: string; email: string | null; notes: string | null; nearAccount: string; allowListedOnChain: boolean }
+interface VaultPayment { id: string; paymentId: string; recipient: string; amountFormatted: string; status: string; error: string | null; url: string | null; createdAt: string; batchId: string | null; memo: string | null }
+interface Batch { id: string; label: string; status: string; totalFormatted: string; createdAt: string; payments: VaultPayment[] }
 interface Invoice {
   id: string; number: string; customerEmail: string; customerName: string | null; amountFormatted: string; status: string
   dueDate: string; createdAt: string; txUrl: string | null; settledTxHash: string | null
@@ -70,15 +71,15 @@ function Section({ id, icon: I, title, sub, children }: { id?: string; icon: typ
 const TABS = [
   { id: "invoices", label: "Invoices", does: "Bill clients, see who paid", icon: FileText },
   { id: "vault", label: "Vault", does: "Agent budget and limits", icon: Vault },
-  { id: "payees", label: "Payees", does: "Suppliers you approved", icon: Users },
-  { id: "pay", label: "Pay supplier", does: "Send money from the vault", icon: Send },
+  { id: "payees", label: "Payees", does: "Manage your suppliers", icon: Users },
+  { id: "pay", label: "Payouts", does: "Pay one or many suppliers", icon: Send },
   { id: "company", label: "Company", does: "Details on your invoices", icon: Building2 },
 ]
 
 const FLOW = [
   ["1. Get paid", "Clients pay your invoices. The money lands in your receiving account, which only you control."],
   ["2. Set a budget", "You move part of it into the vault and set the agent's limits. Nothing else is at risk."],
-  ["3. Pay suppliers", "The agent pays approved payees from the vault. The contract refuses anything outside your limits."],
+  ["3. Pay suppliers", "Pay one payee or a whole batch from the vault. The contract refuses anything outside your limits, and every payout is logged in Notion."],
 ]
 
 // ------------------------------------------------------------------ page
@@ -89,6 +90,7 @@ export default function FinancePage() {
   const [payees, setPayees] = useState<Payee[]>([])
   const [payments, setPayments] = useState<VaultPayment[]>([])
   const [invoices, setInvoices] = useState<Invoice[]>([])
+  const [batches, setBatches] = useState<Batch[]>([])
   const [busy, setBusy] = useState<string | null>(null)
   const [msg, setMsg] = useState<{ ok: boolean; text: string; url?: string } | null>(null)
   const [hasKey, setHasKey] = useState(false)
@@ -99,11 +101,13 @@ export default function FinancePage() {
     setSt(s)
     setLoadError("")
     if (s.company) {
-      const [p, v, i] = await Promise.all([
+      const [p, v, i, b] = await Promise.all([
         authService.api<{ payees: Payee[] }>("/api/payees"),
         authService.api<{ payments: VaultPayment[] }>("/api/vault/payments"),
         authService.api<{ invoices: Invoice[] }>("/api/invoices"),
+        authService.api<{ batches: Batch[] }>("/api/vault/payout-batches"),
       ])
+      setBatches(b.batches)
       setPayees(p.payees)
       setPayments(v.payments)
       setInvoices(i.invoices)
@@ -169,6 +173,11 @@ export default function FinancePage() {
   const [payTo, setPayTo] = useState("")
   const [payAmt, setPayAmt] = useState("")
   const [payMemo, setPayMemo] = useState("")
+  const [payMode, setPayMode] = useState<"single" | "batch">("single")
+  const [batchLabel, setBatchLabel] = useState("")
+  const [rows, setRows] = useState([{ payeeId: "", amount: "", memo: "" }])
+  const [editId, setEditId] = useState<string | null>(null)
+  const [edit, setEdit] = useState({ name: "", email: "", notes: "" })
   const [inv, setInv] = useState({ email: "", name: "", description: "", due: "" })
   const [lines, setLines] = useState([{ description: "", quantity: "1", unitPrice: "" }])
 
@@ -433,16 +442,36 @@ export default function FinancePage() {
                 {payees.length ? (
                   <ul className="divide-y divide-border rounded-lg border border-border">
                     {payees.map((x) => (
-                      <li key={x.id} className="flex items-center justify-between gap-3 px-4 py-2.5">
-                        <div className="min-w-0">
-                          <p className="font-medium">{x.name}</p>
-                          <p className="truncate font-mono text-xs text-muted-foreground">{x.nearAccount}</p>
+                      <li key={x.id} className="grid gap-3 px-4 py-2.5">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="font-medium">{x.name}{x.email && <span className="ml-2 text-sm font-normal text-muted-foreground">{x.email}</span>}</p>
+                            <p className="truncate font-mono text-xs text-muted-foreground">{x.nearAccount}</p>
+                            {x.notes && <p className="text-sm text-muted-foreground">{x.notes}</p>}
+                          </div>
+                          <div className="flex shrink-0 items-center gap-2">
+                            {x.allowListedOnChain ? (
+                              <span className="text-xs font-medium text-success">Approved on vault</span>
+                            ) : (
+                              <button type="button" className={`${btnSecondary} h-8 px-3 text-xs`} disabled={!!busy || !hasKey} onClick={() => run("Allow-list payee", () =>
+                                owner("Allow-list payee", st.vault!, "add_payee", { payee: x.nearAccount }))}>Approve on vault</button>
+                            )}
+                            <button type="button" className={`${btnSecondary} h-8 px-3 text-xs`} onClick={() => { setEditId(editId === x.id ? null : x.id); setEdit({ name: x.name, email: x.email || "", notes: x.notes || "" }) }}>Edit</button>
+                            <button type="button" aria-label={`Remove ${x.name}`} className={`${btnSecondary} h-8 px-2.5 text-xs`} disabled={!!busy} onClick={() => {
+                              if (confirm(`Remove ${x.name} from SKYPay? ${x.allowListedOnChain ? "Their on-chain approval stays until you revoke it in the vault." : ""}`)) run("Remove payee", async () => { await authService.api(`/api/payees/${x.id}`, { method: "DELETE" }) })
+                            }}><Trash2 className="h-3.5 w-3.5" /></button>
+                          </div>
                         </div>
-                        {x.allowListedOnChain ? (
-                          <span className="shrink-0 text-xs font-medium text-success">Approved on vault</span>
-                        ) : (
-                          <button type="button" className={`${btnSecondary} h-8 shrink-0 px-3 text-xs`} disabled={!!busy || !hasKey} onClick={() => run("Allow-list payee", () =>
-                            owner("Allow-list payee", st.vault!, "add_payee", { payee: x.nearAccount }))}>Approve on vault</button>
+                        {editId === x.id && (
+                          <div className="grid gap-3 sm:grid-cols-[1fr_1fr_1.4fr_auto] sm:items-start [&>button]:mt-[30px]">
+                            <F id={`e-name-${x.id}`} label="Name"><input id={`e-name-${x.id}`} value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} className={input} /></F>
+                            <F id={`e-mail-${x.id}`} label="Email"><input id={`e-mail-${x.id}`} type="email" value={edit.email} onChange={(e) => setEdit({ ...edit, email: e.target.value })} className={input} /></F>
+                            <F id={`e-notes-${x.id}`} label="Notes" hint="Not shared. Shown in Notion too."><input id={`e-notes-${x.id}`} value={edit.notes} onChange={(e) => setEdit({ ...edit, notes: e.target.value })} className={input} /></F>
+                            <button type="button" className={btnPrimary} disabled={!!busy || !edit.name.trim()} onClick={() => run("Save payee", async () => {
+                              await authService.api(`/api/payees/${x.id}`, { method: "PATCH", body: JSON.stringify(edit) })
+                              setEditId(null)
+                            })}>Save</button>
+                          </div>
                         )}
                       </li>
                     ))}
@@ -463,8 +492,46 @@ export default function FinancePage() {
               </Section>}
 
             {/* Supplier payments */}
-            {tab === "pay" && <Section id="pay" icon={Send} title="Pay a supplier from the vault" sub="Sends money from the vault to an approved payee, using the agent's key. The same rules apply as when you ask the agent in chat: over-limit, unapproved or revoked payments are refused on chain.">
-              <div className="grid gap-3 sm:grid-cols-[1.2fr_0.6fr_1fr_auto] sm:items-end">
+            {tab === "pay" && <Section id="pay" icon={Send} title="Payouts" sub="Send money from the vault to approved payees, using the agent's key. Over-limit, unapproved or revoked payments are refused on chain. Every payout is also logged in your Notion workspace under Supplier payments.">
+              <div role="tablist" aria-label="Payout type" className="inline-flex w-fit rounded-lg border border-border bg-muted p-1">
+                {(["single", "batch"] as const).map((m) => (
+                  <button key={m} type="button" role="tab" aria-selected={payMode === m} onClick={() => setPayMode(m)}
+                    className={`press rounded-md px-4 py-1.5 text-sm font-semibold ${payMode === m ? "bg-card shadow-sm" : "text-muted-foreground"}`}>{m === "single" ? "Single payout" : "Batch payout"}</button>
+                ))}
+              </div>
+              {payMode === "batch" && (() => {
+                const valid = rows.every((r) => r.payeeId && isAmount(r.amount))
+                const total = rows.reduce((a, r) => a + (isAmount(r.amount) ? Number(r.amount) : 0), 0)
+                const avail = st.vaultAvailable ? Number(fromBaseUnits(st.vaultAvailable)) : 0
+                return (
+                  <div className="grid gap-3 rounded-lg border border-border p-4">
+                    <F id="batch-label" label="Batch name" hint="For your records, e.g. “November suppliers”."><input id="batch-label" value={batchLabel} onChange={(e) => setBatchLabel(e.target.value)} className={input} /></F>
+                    {rows.map((r, i) => (
+                      <div key={i} className="grid gap-2 sm:grid-cols-[1.2fr_0.6fr_1fr_auto] sm:items-end">
+                        <select aria-label={`Payee ${i + 1}`} className={input} value={r.payeeId} onChange={(e) => setRows(rows.map((x, k) => k === i ? { ...x, payeeId: e.target.value } : x))}>
+                          <option value="">Choose payee</option>
+                          {payees.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+                        </select>
+                        <input aria-label={`Amount ${i + 1}`} placeholder={`Amount (${tokenShort})`} inputMode="decimal" value={r.amount} onChange={(e) => setRows(rows.map((x, k) => k === i ? { ...x, amount: e.target.value } : x))} className={`${input} tabular`} />
+                        <input aria-label={`Memo ${i + 1}`} placeholder="Memo or bill reference" value={r.memo} onChange={(e) => setRows(rows.map((x, k) => k === i ? { ...x, memo: e.target.value } : x))} className={input} />
+                        <button type="button" aria-label={`Remove row ${i + 1}`} className={`${btnSecondary} px-3`} disabled={rows.length === 1} onClick={() => setRows(rows.filter((_, k) => k !== i))}><X className="h-4 w-4" /></button>
+                      </div>
+                    ))}
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <button type="button" className={btnSecondary} disabled={rows.length >= 10} onClick={() => setRows([...rows, { payeeId: "", amount: "", memo: "" }])}><Plus className="h-4 w-4" /> Add payee ({rows.length}/10)</button>
+                      <p className={`tabular text-base font-semibold ${total > avail ? "text-destructive" : ""}`}>Total {total.toFixed(2)} of {avail.toFixed(2)} {tokenShort} available</p>
+                      <button type="button" className={btnPrimary} disabled={!!busy || !valid || total > avail} onClick={() => run("Batch payout", async () => {
+                        const r = await authService.api<{ batch: Batch; payments: VaultPayment[] }>("/api/vault/payout-batches", { method: "POST", body: JSON.stringify({ label: batchLabel, items: rows }) })
+                        const ok = r.payments.filter((p) => p.status === "settled").length
+                        setRows([{ payeeId: "", amount: "", memo: "" }]); setBatchLabel("")
+                        return { text: `Batch ${r.batch.status}: ${ok} of ${r.payments.length} payments settled` }
+                      })}>{busy === "Batch payout" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Pay all</button>
+                    </div>
+                    <p className="text-sm text-muted-foreground">Payments run one after another. If the vault refuses one, the others still go through.</p>
+                  </div>
+                )
+              })()}
+              {payMode === "single" && <div className="grid gap-3 sm:grid-cols-[1.2fr_0.6fr_1fr_auto] sm:items-end">
                 <F id="pay-to" label="Payee">
                   <select id="pay-to" className={input} value={payTo} onChange={(e) => setPayTo(e.target.value)}>
                     <option value="">Choose payee</option>
@@ -481,7 +548,32 @@ export default function FinancePage() {
                 })}>
                   {busy === "Supplier payment" ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Pay
                 </button>
-              </div>
+              </div>}
+              {batches.length > 0 && (
+                <div className="grid gap-2">
+                  <h3 className="text-[15px] font-bold">Batches</h3>
+                  {batches.map((b) => (
+                    <details key={b.id} className="rounded-lg border border-border">
+                      <summary className="flex cursor-pointer flex-wrap items-center justify-between gap-2 px-4 py-2.5 font-medium">
+                        <span>{b.label} <span className="ml-1 text-sm font-normal text-muted-foreground">{b.payments.length} payments · {Number(b.totalFormatted).toFixed(2)} {tokenShort} · {new Date(b.createdAt).toLocaleDateString()}</span></span>
+                        <StatusPill status={b.status === "done" ? "settled" : b.status === "partial" ? "processing" : b.status === "failed" ? "failed" : "pending"} />
+                      </summary>
+                      <ul className="divide-y divide-border border-t border-border">
+                        {b.payments.map((x) => (
+                          <li key={x.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-2 text-sm">
+                            <span className="min-w-0 truncate"><span className="font-mono text-xs">{x.recipient}</span>{x.memo && <span className="ml-2 text-muted-foreground">{x.memo}</span>}</span>
+                            <span className="flex items-center gap-3">
+                              <span className="tabular font-medium">{Number(x.amountFormatted).toFixed(2)}</span>
+                              <StatusPill status={x.status} />
+                              {x.error ? <span className="text-xs text-destructive">{x.error.replace("Contract panicked: ", "Refused by vault: ")}</span> : <Tx url={x.url} />}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
+                  ))}
+                </div>
+              )}
               {payments.length > 0 && (
                 <div className="overflow-x-auto rounded-lg border border-border">
                   <table className="w-full min-w-[560px] text-base font-medium">

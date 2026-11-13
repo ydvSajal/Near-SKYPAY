@@ -934,6 +934,72 @@ export class NotionService {
     }
   }
 
+  /** Payees database: created lazily so workspaces built before this feature get it without a rebuild. */
+  async ensurePayeesDatabase(userId, parentPageId) {
+    const existing = await this.prisma.notionDatabase.findFirst({ where: { userId, databaseType: 'PAYEES', isActive: true } });
+    if (existing) return existing.databaseId;
+    const rt = () => ({ rich_text: {} });
+    const db = await this.notion.databases.create({
+      parent: { type: 'page_id', page_id: parentPageId },
+      is_inline: false,
+      title: [{ type: 'text', text: { content: 'Payees' } }],
+      properties: { Name: { title: {} }, 'NEAR Account': rt(), Email: { email: {} }, Notes: rt(), 'On-chain allow-list': rt() },
+    });
+    await this.prisma.notionDatabase.create({
+      data: { userId, databaseId: db.id, databaseName: 'SkyPay Payees', databaseType: 'PAYEES', properties: JSON.stringify(db.properties) },
+    });
+    return db.id;
+  }
+
+  /** Add the Payee / Batch columns to a Supplier payments database made before batch payouts existed. Idempotent. */
+  async ensurePayoutColumns(databaseId) {
+    await this.notion.databases.update({ database_id: databaseId, properties: { Payee: { rich_text: {} }, Batch: { rich_text: {} } } })
+      .catch((e) => console.error('payout columns:', e.message));
+  }
+
+  async upsertPayeeRecord(userId, parentPageId, p) {
+    const databaseId = await this.ensurePayeesDatabase(userId, parentPageId);
+    const text = (c) => ({ rich_text: [{ text: { content: String(c || '').slice(0, 1900) } }] });
+    const properties = {
+      Name: { title: [{ text: { content: p.name } }] }, 'NEAR Account': text(p.nearAccount),
+      Email: { email: p.email || null }, Notes: text(p.notes),
+    };
+    const found = await this.notion.databases.query({ database_id: databaseId, filter: { property: 'NEAR Account', rich_text: { equals: p.nearAccount } } });
+    if (found.results[0]) return this.notion.pages.update({ page_id: found.results[0].id, properties });
+    return this.notion.pages.create({ parent: { database_id: databaseId }, properties });
+  }
+
+  /** Trash the Notion row for a removed payee. False when there is no Payees table or no row. */
+  async archivePayeeRecord(userId, nearAccount) {
+    const db = await this.prisma.notionDatabase.findFirst({ where: { userId, databaseType: 'PAYEES', isActive: true } });
+    if (!db) return false;
+    const found = await this.notion.databases.query({ database_id: db.databaseId, filter: { property: 'NEAR Account', rich_text: { equals: nearAccount } } });
+    for (const page of found.results) await this.notion.pages.update({ page_id: page.id, archived: true });
+    return found.results.length > 0;
+  }
+
+  /** Create or update the Supplier payments row for one vault payment (keyed by Payment ID). */
+  async upsertOutgoingPaymentRecord(databaseId, d) {
+    const found = await this.notion.databases.query({ database_id: databaseId, filter: { property: 'Payment ID', title: { equals: d.paymentId } } });
+    const text = (c) => ({ rich_text: [{ text: { content: String(c || '').slice(0, 1900) } }] });
+    if (found.results[0]) {
+      return this.notion.pages.update({
+        page_id: found.results[0].id,
+        properties: { Status: { select: { name: d.status } }, 'Transaction Hash': text(d.txHash), Description: text(d.description) },
+      });
+    }
+    return this.notion.pages.create({
+      parent: { database_id: databaseId },
+      properties: {
+        'Payment ID': { title: [{ text: { content: d.paymentId } }] }, Amount: { number: parseFloat(d.amount) || 0 },
+        Currency: { select: { name: 'USDC' } }, Network: { select: { name: d.network } },
+        'Recipient Address': text(d.recipientAddress), 'Recipient Name': text(d.recipientName), 'From Name': text(d.fromName),
+        Description: text(d.description), Status: { select: { name: d.status } }, 'Transaction Hash': text(d.txHash),
+        'Executed At': { date: d.executedAt ? { start: d.executedAt } : null }, Payee: text(d.recipientName), Batch: text(d.batch),
+      },
+    });
+  }
+
   /**
    * Helper method to extract text from Notion properties
    */

@@ -112,11 +112,86 @@ export class SkyPay {
     if (!NEAR_ACCOUNT.test(acct)) throw httpErr(400, 'invalid NEAR account id');
     if (!(await this.near.accountExists(acct))) throw httpErr(400, `${acct} does not exist on NEAR ${this.near.network}`);
     await this.near.registerOnToken(acct); // sponsor-paid NEP-145 registration so it can receive USDC
-    return this.prisma.payee.upsert({
+    const payee = await this.prisma.payee.upsert({
       where: { userId_nearAccount: { userId, nearAccount: acct } },
       create: { userId, name: String(name || acct).slice(0, 120), email: email || null, nearAccount: acct },
       update: { name: String(name || acct).slice(0, 120), email: email || null },
     });
+    await this.outbox.enqueue(userId, 'notion_payee', `notion_payee:${payee.id}:${Date.now()}`, { payeeId: payee.id }).catch(() => {});
+    return payee;
+  }
+
+  /** Rename / change contact or notes. The NEAR account is fixed: a new address is a new payee. */
+  async updatePayee(userId, id, { name, email, notes }) {
+    const p = await this.prisma.payee.findFirst({ where: { id, userId } });
+    if (!p) throw httpErr(404, 'payee not found');
+    const data = {};
+    if (name !== undefined) {
+      if (!String(name).trim()) throw httpErr(400, 'name cannot be empty');
+      data.name = String(name).trim().slice(0, 120);
+    }
+    if (email !== undefined) {
+      const e = String(email || '').trim().toLowerCase();
+      if (e && !EMAIL.test(e)) throw httpErr(400, 'invalid email');
+      data.email = e || null;
+    }
+    if (notes !== undefined) data.notes = String(notes || '').trim().slice(0, 500) || null;
+    const out = await this.prisma.payee.update({ where: { id }, data });
+    await this.outbox.enqueue(userId, 'notion_payee', `notion_payee:${id}:${Date.now()}`, { payeeId: id }).catch(() => {});
+    return out;
+  }
+
+  /** Removes the payee from SkyPay only; the on-chain allow-list entry is owner-signed and stays until revoked in the vault. */
+  async removePayee(userId, id) {
+    const p = await this.prisma.payee.findFirst({ where: { id, userId } });
+    if (!p) throw httpErr(404, 'payee not found');
+    await this.prisma.payee.delete({ where: { id } });
+    // the row is gone, so the job carries the account it must remove from Notion
+    await this.outbox.enqueue(userId, 'notion_payee_remove', `notion_payee_remove:${id}`, { nearAccount: p.nearAccount }).catch(() => {});
+    return p;
+  }
+
+  /**
+   * Pay several approved payees in one go. Items run one after another (same agent key, so no nonce clashes);
+   * a refused item does not stop the rest. Every item is its own idempotent vault payment.
+   * ponytail: synchronous, capped at 10 items; move to an outbox job if batches must be larger.
+   */
+  async payBatch(userId, { label, items }) {
+    if (!Array.isArray(items) || items.length < 1 || items.length > 10) throw httpErr(400, 'a batch needs 1 to 10 payments');
+    const u = await this.user(userId);
+    if (!u.vaultAccountId || !u.agentKeyEnc) throw httpErr(409, 'vault not provisioned');
+    const ids = [...new Set(items.map((i) => i.payeeId))];
+    const payees = await this.prisma.payee.findMany({ where: { userId, id: { in: ids } } });
+    if (payees.length !== ids.length) throw httpErr(404, 'payee not registered by the owner');
+    const parsed = items.map((i) => {
+      let base;
+      try { base = parseUnits(String(i.amount)); } catch { throw httpErr(400, `invalid amount "${i.amount}"`); }
+      if (BigInt(base) <= 0n) throw httpErr(400, 'amounts must be greater than zero');
+      return { payeeId: i.payeeId, amount: String(i.amount), memo: i.memo, base };
+    });
+    const total = parsed.reduce((a, i) => a + BigInt(i.base), 0n);
+    const vault = await this.near.vaultState(u.vaultAccountId);
+    if (total > BigInt(vault.available)) throw httpErr(422, 'batch total is more than the vault has available');
+
+    const batch = await this.prisma.payoutBatch.create({
+      data: { userId, label: String(label || '').trim().slice(0, 80) || `Batch ${new Date().toISOString().slice(0, 10)}`, total: total.toString(), status: 'queued' },
+    });
+    const results = [];
+    const finish = (n) => (n === parsed.length ? 'done' : n === 0 ? 'failed' : 'partial');
+    try {
+      for (const [i, it] of parsed.entries()) {
+        results.push(await this.paySupplier(userId, { payeeId: it.payeeId, amount: it.amount, memo: it.memo, idempotencyKey: `batch:${batch.id}:${i}`, batchId: batch.id }));
+      }
+    } catch (e) {
+      // unexpected error (e.g. DB down) mid-batch: never leave the batch "queued"; unpaid items count as not settled
+      const settled = results.filter((a) => a.status === 'settled').length;
+      await this.prisma.payoutBatch.update({ where: { id: batch.id }, data: { status: settled === 0 ? 'failed' : 'partial' } }).catch(() => {});
+      throw e;
+    }
+    const status = finish(results.filter((a) => a.status === 'settled').length);
+    const done = await this.prisma.payoutBatch.update({ where: { id: batch.id }, data: { status } });
+    await this.outbox.enqueue(userId, 'notion_dashboard', `notion_dashboard:batch:${batch.id}`, {}).catch(() => {});
+    return { batch: done, payments: results };
   }
 
   async findPayee(userId, nameOrAccount) {
@@ -130,7 +205,7 @@ export class SkyPay {
    * Agent-executed supplier payment. Attempt row is persisted BEFORE dispatch; the vault contract is the authority.
    * Same idempotencyKey -> same attempt, never a second transfer (A11, A15).
    */
-  async paySupplier(userId, { payeeId, amount, memo, idempotencyKey }) {
+  async paySupplier(userId, { payeeId, amount, memo, idempotencyKey, batchId }) {
     const u = await this.user(userId);
     if (!u.vaultAccountId || !u.agentKeyEnc) throw httpErr(409, 'vault not provisioned');
     const payee = await this.prisma.payee.findFirst({ where: { id: payeeId, userId } });
@@ -148,6 +223,7 @@ export class SkyPay {
       data: {
         userId, direction: 'OUT', paymentId, recipient: payee.nearAccount, amount: base, network: `near:${this.near.network}`,
         status: 'submitted', requestHash: JSON.stringify({ memo: memo || '', expiresAtMs }),
+        memo: memo ? String(memo).slice(0, 120) : null, batchId: batchId || null,
       },
     });
     try {
@@ -165,7 +241,7 @@ export class SkyPay {
         data: { status: refused ? 'failed' : 'unknown', error: String(e.message).slice(0, 300), txHash: e.txHash || null },
       });
     }
-    await this.outbox.enqueue(userId, 'notion_dashboard', `notion_dashboard:${attempt.id}:${attempt.status}`, {}).catch(() => {});
+    await this.outbox.enqueue(userId, 'notion_payout', `notion_payout:${attempt.id}:${attempt.status}`, { attemptId: attempt.id }).catch(() => {});
     return attempt;
   }
 
@@ -176,7 +252,9 @@ export class SkyPay {
     if (!a) throw httpErr(404, 'payment not found');
     const onChain = await this.near.vaultPayment(u.vaultAccountId, a.paymentId);
     const status = !onChain ? (a.status === 'unknown' ? 'failed' : a.status) : { Reserved: 'processing', Settled: 'settled', Failed: 'failed' }[onChain.status];
-    return this.prisma.paymentAttempt.update({ where: { id: a.id }, data: { status } });
+    const out = await this.prisma.paymentAttempt.update({ where: { id: a.id }, data: { status } });
+    await this.outbox.enqueue(userId, 'notion_payout', `notion_payout:${a.id}:${status}`, { attemptId: a.id }).catch(() => {});
+    return out;
   }
 }
 

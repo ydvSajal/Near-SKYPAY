@@ -38,7 +38,8 @@ model User {
   invoices         Invoice[]
   payees           Payee[]
   paymentAttempts  PaymentAttempt[]
-  outboxJobs       OutboxJob[]
+  payoutBatches    PayoutBatch[]
+  outboxJobs      OutboxJob[]
   sponsorLedger    SponsorLedger[]
 }
 
@@ -80,6 +81,7 @@ model Payee {
   name        String
   email       String?
   nearAccount String                          // registered by the owner only; never taken from prompts/emails
+  notes       String?
   createdAt   DateTime @default(now())
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -93,6 +95,8 @@ model PaymentAttempt {
   invoiceId   String?
   paymentId   String    @unique                // idempotency key; for OUT it is the vault payment_id
   requestHash String?                          // binds id to recipient/amount/ref
+  batchId     String?                          // set when paid as part of a payout batch
+  memo        String?
   recipient   String?
   amount      String
   asset       String    @default("USDC")
@@ -105,6 +109,18 @@ model PaymentAttempt {
 
   user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   invoice Invoice? @relation(fields: [invoiceId], references: [id])
+  batch   PayoutBatch? @relation(fields: [batchId], references: [id])
+}
+
+model PayoutBatch {
+  id        String   @id @default(cuid())
+  userId    String
+  label     String
+  status    String   @default("queued")        // queued | done | partial | failed
+  total     String                              // base units, sum of all items
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  payments  PaymentAttempt[]
 }
 
 model OutboxJob {

@@ -2,7 +2,7 @@
 
 Recorded on NEAR testnet with the test token. Each step names what the viewer should see.
 
-1. **Dashboard → Finance · NEAR.** "Set up your company on NEAR". Say: the company will never buy NEAR.
+1. **Dashboard → Finance.** "Set up your company on NEAR". Say: the company will never buy NEAR.
 2. **Create company NEAR account.** Three accounts appear with explorer links. Open the vault in the explorer: it has no access keys.
 3. **Chat:** "Request 10 USD from client@example.com for a design sprint, due in 7 days."
    The agent replies with `INV-000X` and a checkout link. The backend log shows the invoice email job.

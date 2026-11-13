@@ -1,31 +1,38 @@
-# SkyPay API smoke 2026-11-13T06:46:28.760Z against http://localhost:3001
-1. registered owner-319376@example.com
-2. provisioned (no NEAR purchased by owner): acmestudio0243.testnet | vault acmestudio0243-vault.testnet | agent acmestudio0243-agent.testnet
-3. invoice INV-0001 total 10 USDC  checkout: /invoice/cmwem6njw0007c5y9nrwpx0a4
-4. public checkout shows: 10 USDC to acmestudio0243.testnet due 2026-11-27 status=pending
+# SkyPay API smoke 2026-11-13T18:59:28.148Z against http://localhost:3001
+1. registered owner-1ef351@example.com
+2. provisioned (no NEAR purchased by owner): acmestudio9c1b.testnet | vault acmestudio9c1b-vault.testnet | agent acmestudio9c1b-agent.testnet
+3. invoice INV-0001 total 10 USDC  checkout: /invoice/cmwfcczkr0006ioscf55pa1z3
+4. public checkout shows: 10 USDC to acmestudio9c1b.testnet due 2026-11-27 status=pending
 5. fake tx hash rejected: 422 could not verify transaction on NEAR: Failed parsing args: data did not match any variant of untagged enum TransactionInfo
-6. client paid (testnet demo payer, TEST token): status=paid https://testnet.nearblocks.io/txns/CkNU45FFhwU4GD4UrePDzmdwzA2DUL3VpB5cYbRyqEhY
+6. client paid (testnet demo payer, TEST token): status=paid https://testnet.nearblocks.io/txns/81ja5bxBRUX73TdkDC7PmBMvaS8sAbZhxcNc7w1oxRJw
 7. re-confirm same tx: status=paid alreadyPaid=true (closes once)
 8. same tx used for another invoice: 409 this transaction already settled another invoice
 9. company received 10 tUSDC (testnet test token, no value)
-10. owner registered payee Pixel Supplies = skypay-sup-e99b70.testnet
-11. allow-list payee on vault (sponsored): https://testnet.nearblocks.io/txns/Bj8NFj7DA1FbkCtL9grFnF7wxnLNVg6QtN7g9HYF3AYU
-12. agent limits 5 USDC/payment, 8 USDC/day (sponsored): https://testnet.nearblocks.io/txns/GLi7oUHVDs21mMp8oUfCrG17pN4LAm3z3xT67oUKk3Ko
-13. owner funded vault 9 USDC (sponsored): https://testnet.nearblocks.io/txns/FU5qD4SFtc8CMe49ro7uBNVafi7XpNvLktAnB49QxzJo
+10. owner registered payee Pixel Supplies = skypay-sup-7bd93b.testnet
+11. allow-list payee on vault (sponsored): https://testnet.nearblocks.io/txns/4FRuEiCcj4yWcNJyKnTxh1JjByk9wsExHyy7tQKbTu84
+12. agent limits 5 USDC/payment, 8 USDC/day (sponsored): https://testnet.nearblocks.io/txns/7nLq5xzqeAB6QBBVMWGXkCTqwk33RjobPRLanfhHEJtc
+13. owner funded vault 9 USDC (sponsored): https://testnet.nearblocks.io/txns/93jBudcBUeicnYsXoAHaFvhLyssgBTHpS3LsiTMTP4bW
 14. sponsor refuses non-vault transfer: 422 relay refused: funds may only be sent to the company vault
-15. agent pays supplier 4: settled https://testnet.nearblocks.io/txns/7LePyEZz4c6XSd1Arq2WVMsSge2zySNcJGaMFjbQXcUa
+15. agent pays supplier 4: settled https://testnet.nearblocks.io/txns/F57jXG8sSGNW8XKpqN4B4Cj139bzkAMigM5fTUrDVtCY
 16. same request repeated: settled same paymentId=true (no second transfer)
 17. 6 USDC (over 5 per-payment limit): failed -> Contract panicked: exceeds per-payment limit
 18. 4.5 more (4+4.5 > 8 daily cap): failed -> Contract panicked: exceeds daily limit
-19. vault available 5, reserved 0, agent spent today 4
+18a. payee edited: Pixel Supplies Ltd / net 30
+18b. batch of 3 (1+2+2, daily cap leaves room for 4): batch=partial items=settled,settled,failed
+18c. batch history lists 1 batch with 3 payments
+18d. batch over vault balance refused: 422 batch total is more than the vault has available
+19. vault available 2, reserved 0, agent spent today 7
 20. invoices.csv:
 invoice_id,invoice_number,customer_name,customer_email,description,issue_date_utc,due_date_utc,invoice_currency,amount_due,status,destination_asset_contract,destination_network,receiving_account,settled_amount,network_fee_paid_by_merchant,settled_at_utc,transaction_hash,transaction_url
-cmwem6njw0007c5y9nrwpx0a4,INV-0001,Client Co,client@example.com,Website design,2026-11-13T06:47:13.339Z,2026-11-27T06:47:13.331Z,USDC,10.000000,paid,skypay-tusdc-eb844b.testnet,near:testnet,acmestudio0243.testnet,10.000000,0.000000,2026-11-13T06:47:21.125Z,CkNU45FFhwU4GD4UrePDzmdwzA2DUL3VpB5cYbRyqEhY,https://testnet.nearblocks.io/txns/CkNU45FFhwU4GD4UrePDzmdwzA2DUL3VpB5cYbRyqEhY
-cmwem6tku000kc5y90p3hwcna,INV-0002,,other@example.com,,2026-11-13T06:47:21.150Z,2026-11-27T06:47:21.149Z,USDC,10.000000,pending,skypay-tusdc-eb844b.testnet,near:testnet,acmestudio0243.testnet,,0.000000,,,
+cmwfcczkr0006ioscf55pa1z3,INV-0001,Client Co,client@example.com,Website design,2026-11-13T18:59:58.876Z,2026-11-27T18:59:58.872Z,USDC,10.000000,paid,skypay-tusdc-eb844b.testnet,near:testnet,acmestudio9c1b.testnet,10.000000,0.000000,2026-11-13T19:00:06.076Z,81ja5bxBRUX73TdkDC7PmBMvaS8sAbZhxcNc7w1oxRJw,https://testnet.nearblocks.io/txns/81ja5bxBRUX73TdkDC7PmBMvaS8sAbZhxcNc7w1oxRJw
+cmwfcd55x000jioscwpb12887,INV-0002,,other@example.com,,2026-11-13T19:00:06.118Z,2026-11-27T19:00:06.115Z,USDC,10.000000,pending,skypay-tusdc-eb844b.testnet,near:testnet,acmestudio9c1b.testnet,,0.000000,,,
 21. payments.csv:
-payment_id,direction,invoice_number,counterparty,amount,currency,network,status,transaction_hash,transaction_url,error,created_at_utc,updated_at_utc
-in:CkNU45FFhwU4GD4UrePDzmdwzA2DUL3VpB5cYbRyqEhY,incoming,INV-0001,acmestudio0243.testnet,10.000000,USDC,near:testnet,settled,CkNU45FFhwU4GD4UrePDzmdwzA2DUL3VpB5cYbRyqEhY,https://testnet.nearblocks.io/txns/CkNU45FFhwU4GD4UrePDzmdwzA2DUL3VpB5cYbRyqEhY,,2026-11-13T06:47:21.129Z,2026-11-13T06:47:21.129Z
-out_b618a8479d94e9ef318f269b74021c9d,outgoing,,skypay-sup-e99b70.testnet,4.000000,USDC,near:testnet,settled,7LePyEZz4c6XSd1Arq2WVMsSge2zySNcJGaMFjbQXcUa,https://testnet.nearblocks.io/txns/7LePyEZz4c6XSd1Arq2WVMsSge2zySNcJGaMFjbQXcUa,,2026-11-13T06:47:49.133Z,2026-11-13T06:47:53.608Z
-out_715ecc963136049f8728e46c1408fd86,outgoing,,skypay-sup-e99b70.testnet,6.000000,USDC,near:testnet,failed,,,Contract panicked: exceeds per-payment limit,2026-11-13T06:47:53.641Z,2026-11-13T06:47:56.353Z
-out_e92a3eccbc173a91ca4e23263f918dc0,outgoing,,skypay-sup-e99b70.testnet,4.500000,USDC,near:testnet,failed,,,Contract panicked: exceeds daily limit,2026-11-13T06:47:56.379Z,2026-11-13T06:47:59.449Z
+payment_id,direction,invoice_number,counterparty,amount,currency,network,status,transaction_hash,transaction_url,error,created_at_utc,updated_at_utc,batch,memo
+in:81ja5bxBRUX73TdkDC7PmBMvaS8sAbZhxcNc7w1oxRJw,incoming,INV-0001,acmestudio9c1b.testnet,10.000000,USDC,near:testnet,settled,81ja5bxBRUX73TdkDC7PmBMvaS8sAbZhxcNc7w1oxRJw,https://testnet.nearblocks.io/txns/81ja5bxBRUX73TdkDC7PmBMvaS8sAbZhxcNc7w1oxRJw,,2026-11-13T19:00:06.080Z,2026-11-13T19:00:06.080Z,,
+out_1c8b489fdac80113dc6c8ab992bdea32,outgoing,,skypay-sup-7bd93b.testnet,4.000000,USDC,near:testnet,settled,F57jXG8sSGNW8XKpqN4B4Cj139bzkAMigM5fTUrDVtCY,https://testnet.nearblocks.io/txns/F57jXG8sSGNW8XKpqN4B4Cj139bzkAMigM5fTUrDVtCY,,2026-11-13T19:00:29.713Z,2026-11-13T19:00:33.401Z,,INV-SUP-1
+out_a641ec4f48ee8113b5a6c332e14d5240,outgoing,,skypay-sup-7bd93b.testnet,6.000000,USDC,near:testnet,failed,,,Contract panicked: exceeds per-payment limit,2026-11-13T19:00:33.436Z,2026-11-13T19:00:35.799Z,,big
+out_7a18a380aea947a69f5304abf6ecad56,outgoing,,skypay-sup-7bd93b.testnet,4.500000,USDC,near:testnet,failed,,,Contract panicked: exceeds daily limit,2026-11-13T19:00:35.816Z,2026-11-13T19:00:38.443Z,,second
+out_96b654db2bc74610b11b14438930ec59,outgoing,,skypay-sup-7bd93b.testnet,1.000000,USDC,near:testnet,settled,5h2F3n9Jh4WJoSZwkmuYGmpdXUdf8REiRkrnRE3PXL69,https://testnet.nearblocks.io/txns/5h2F3n9Jh4WJoSZwkmuYGmpdXUdf8REiRkrnRE3PXL69,,2026-11-13T19:00:38.758Z,2026-11-13T19:00:42.393Z,Smoke batch,b1
+out_a5013dab68f604d365a6a960995c48f1,outgoing,,skypay-sup-7bd93b.testnet,2.000000,USDC,near:testnet,settled,7UzLxA2kwXoMtrQz5PpEEh9a7DGrvH5Jxm3Stze21hwh,https://testnet.nearblocks.io/txns/7UzLxA2kwXoMtrQz5PpEEh9a7DGrvH5Jxm3Stze21hwh,,2026-11-13T19:00:42.400Z,2026-11-13T19:00:45.698Z,Smoke batch,b2
+out_04de89a68d169cb2bb87b9bbd87c4098,outgoing,,skypay-sup-7bd93b.testnet,2.000000,USDC,near:testnet,failed,,,Contract panicked: exceeds daily limit,2026-11-13T19:00:45.706Z,2026-11-13T19:00:47.765Z,Smoke batch,b3 (over daily cap)
 22. another company lists invoices: sees 0 (A17 tenant isolation)

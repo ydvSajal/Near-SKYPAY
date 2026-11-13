@@ -43,12 +43,12 @@ export function invoicesCsv(invoices, explorerTx) {
 export function paymentsCsv(attempts, explorerTx) {
   const header = [
     'payment_id', 'direction', 'invoice_number', 'counterparty', 'amount', 'currency', 'network',
-    'status', 'transaction_hash', 'transaction_url', 'error', 'created_at_utc', 'updated_at_utc',
+    'status', 'transaction_hash', 'transaction_url', 'error', 'created_at_utc', 'updated_at_utc', 'batch', 'memo',
   ];
   const rows = attempts.map((p) => [
     p.paymentId, p.direction === 'IN' ? 'incoming' : 'outgoing', p.invoice?.number, p.recipient,
     amt(p.amount), p.asset, p.network, p.status, p.txHash, p.txHash ? explorerTx(p.txHash) : '',
-    p.error, iso(p.createdAt), iso(p.updatedAt),
+    p.error, iso(p.createdAt), iso(p.updatedAt), p.batch?.label, p.memo,
   ]);
   return toCsv(header, rows);
 }

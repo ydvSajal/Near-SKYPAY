@@ -20,8 +20,7 @@ export class Outbox {
       ? nodemailer.createTransport({ service: env.EMAIL_SERVICE || 'gmail', auth: { user: env.EMAIL_USER, pass: env.EMAIL_PASS.trim() } })
       : null;
     this.from = env.EMAIL_FROM || 'SkyPay <noreply@skypay.local>';
-    // HTTPS email API: works where SMTP ports are blocked (Render free plan). Takes priority over SMTP.
-    this.resendKey = env.RESEND_API_KEY || null;
+    this.payoutCols = new Set(); // Notion payout databases already given the Payee/Batch columns this run
   }
 
   /** Enqueue once; a repeated call with the same key is a no-op. */
@@ -88,6 +87,12 @@ export class Outbox {
     // a fresh key per setup: a rebuilt workspace needs every row again
     const run = Date.now();
     for (const { id } of invoices) await this.enqueue(userId, 'notion_invoice', `notion_invoice:${id}:backfill:${run}`, { invoiceId: id });
+    const [payees, payouts] = await Promise.all([
+      this.prisma.payee.findMany({ where: { userId }, select: { id: true } }),
+      this.prisma.paymentAttempt.findMany({ where: { userId, direction: 'OUT' }, select: { id: true } }),
+    ]);
+    for (const { id } of payees) await this.enqueue(userId, 'notion_payee', `notion_payee:${id}:backfill:${run}`, { payeeId: id });
+    for (const { id } of payouts) await this.enqueue(userId, 'notion_payout', `notion_payout:${id}:backfill:${run}`, { attemptId: id });
     await this.enqueue(userId, 'notion_dashboard', `notion_dashboard:${userId}:setup:${run}`, {});
     return 'live';
   }
@@ -95,6 +100,9 @@ export class Outbox {
   async handle(job) {
     if (job.kind === 'notion_setup') return this.notionSetup(job.userId, !!job.payload?.force);
     if (job.kind === 'notion_dashboard') return this.syncDashboard(job.userId);
+    if (job.kind === 'notion_payout') return this.syncPayout(job.payload.attemptId);
+    if (job.kind === 'notion_payee') return this.syncPayee(job.payload.payeeId);
+    if (job.kind === 'notion_payee_remove') return this.removePayeeRow(job.userId, job.payload.nearAccount);
     const invoice = await this.prisma.invoice.findUnique({ where: { id: job.payload.invoiceId }, include: { user: true } });
     if (!invoice) throw new Error('invoice missing');
     if (job.kind === 'invoice_email') return this.sendMail(invoice.customerEmail, ...this.invoiceMail(invoice));
@@ -107,16 +115,6 @@ export class Outbox {
   }
 
   async sendMail(to, subject, html) {
-    if (this.resendKey) {
-      const r = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${this.resendKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ from: this.from, to: [to], subject, html }),
-        signal: AbortSignal.timeout(15_000),
-      });
-      if (!r.ok) throw new Error(`resend ${r.status}: ${(await r.text()).slice(0, 200)}`); // outbox retries with backoff
-      return 'live'; // accepted by the provider; delivery is not proven
-    }
     if (!this.mailer) {
       console.log(`📧 [fixture] would email ${to}: ${subject}`);
       return 'fixture';
@@ -193,6 +191,47 @@ export class Outbox {
     if (!user?.notionApiKey || !user.notionWorkspaceId) return 'skipped';
     await refreshDashboard(new NotionService(user.notionApiKey).notion, this.prisma, userId);
     return 'live';
+  }
+
+  /** Upsert one vault payout in the Notion "Supplier payments" table. Notion is a view; the DB stays the ledger. */
+  async syncPayout(attemptId) {
+    const a = await this.prisma.paymentAttempt.findUnique({ where: { id: attemptId }, include: { user: true, batch: true } });
+    if (!a) return 'skipped'; // payee/user deleted meanwhile
+    const db = await this.prisma.notionDatabase.findFirst({ where: { userId: a.userId, databaseType: 'OUTGOING_PAYMENTS', isActive: true } });
+    if (!a.user.notionApiKey || !db) {
+      console.log(`🗃️ [fixture] Notion not connected; would upsert payout ${a.paymentId} (${a.status})`);
+      return 'fixture';
+    }
+    const notion = new NotionService(a.user.notionApiKey);
+    if (!this.payoutCols.has(db.databaseId)) { await notion.ensurePayoutColumns(db.databaseId); this.payoutCols.add(db.databaseId); }
+    const payee = await this.prisma.payee.findFirst({ where: { userId: a.userId, nearAccount: a.recipient || '' } });
+    await notion.upsertOutgoingPaymentRecord(db.databaseId, {
+      paymentId: a.paymentId, amount: formatUnits(a.amount), network: a.network.replace(':', '-'), recipientAddress: a.recipient,
+      recipientName: payee?.name || a.recipient, fromName: a.user.companyName || a.user.name || 'SkyPay',
+      description: a.memo || '', batch: a.batch?.label || '', txHash: a.txHash || '',
+      status: { settled: 'completed', failed: 'failed' }[a.status] || 'processing',
+      executedAt: a.status === 'settled' ? a.updatedAt.toISOString() : null,
+    });
+    await this.syncDashboard(a.userId).catch((e) => console.error('notion dashboard refresh:', e.message));
+    return 'live';
+  }
+
+  async syncPayee(payeeId) {
+    const p = await this.prisma.payee.findUnique({ where: { id: payeeId }, include: { user: true } });
+    if (!p) return 'skipped';
+    if (!p.user.notionApiKey || !p.user.notionWorkspaceId) {
+      console.log(`🗃️ [fixture] Notion not connected; would upsert payee ${p.name}`);
+      return 'fixture';
+    }
+    await new NotionService(p.user.notionApiKey).upsertPayeeRecord(p.userId, p.user.notionWorkspaceId, p);
+    return 'live';
+  }
+
+  /** Archive the payee's Notion row (Notion trash, recoverable). */
+  async removePayeeRow(userId, nearAccount) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user?.notionApiKey) return 'skipped';
+    return (await new NotionService(user.notionApiKey).archivePayeeRecord(userId, nearAccount)) ? 'live' : 'skipped';
   }
 
   /** Upsert the invoice row in the company's Notion (keyed by invoice id). Notion is a view, never the ledger. */

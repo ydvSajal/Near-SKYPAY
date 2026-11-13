@@ -93,10 +93,31 @@ export function createNearRouter({ prisma, near, skypay, authenticateToken }) {
     res.json({ payee: await skypay.addPayee(req.user.id, req.body || {}) });
   }));
 
+  r.patch('/api/payees/:id', authenticateToken, wrap(async (req, res) => {
+    res.json({ payee: await skypay.updatePayee(req.user.id, req.params.id, req.body || {}) });
+  }));
+
+  r.delete('/api/payees/:id', authenticateToken, wrap(async (req, res) => {
+    await skypay.removePayee(req.user.id, req.params.id);
+    res.json({ ok: true });
+  }));
+
   // ---------------------------------------------------------- vault payments
+  const payView = (p) => ({ ...p, amountFormatted: formatUnits(p.amount), url: p.txHash ? near.explorerTx(p.txHash) : null });
+
   r.get('/api/vault/payments', authenticateToken, wrap(async (req, res) => {
     const list = await prisma.paymentAttempt.findMany({ where: { userId: req.user.id, direction: 'OUT' }, orderBy: { createdAt: 'desc' }, take: 50 });
-    res.json({ payments: list.map((p) => ({ ...p, amountFormatted: formatUnits(p.amount), url: p.txHash ? near.explorerTx(p.txHash) : null })) });
+    res.json({ payments: list.map(payView) });
+  }));
+
+  r.post('/api/vault/payout-batches', authenticateToken, wrap(async (req, res) => {
+    const out = await skypay.payBatch(req.user.id, req.body || {});
+    res.json({ batch: { ...out.batch, totalFormatted: formatUnits(out.batch.total) }, payments: out.payments.map(payView) });
+  }));
+
+  r.get('/api/vault/payout-batches', authenticateToken, wrap(async (req, res) => {
+    const list = await prisma.payoutBatch.findMany({ where: { userId: req.user.id }, orderBy: { createdAt: 'desc' }, take: 20, include: { payments: { orderBy: { createdAt: 'asc' } } } });
+    res.json({ batches: list.map((b) => ({ ...b, totalFormatted: formatUnits(b.total), payments: b.payments.map(payView) })) });
   }));
 
   r.post('/api/vault/payments', authenticateToken, wrap(async (req, res) => {
@@ -182,7 +203,7 @@ export function createNearRouter({ prisma, near, skypay, authenticateToken }) {
   }));
 
   r.get('/api/export/payments.csv', authenticateToken, wrap(async (req, res) => {
-    const list = await prisma.paymentAttempt.findMany({ where: { userId: req.user.id }, include: { invoice: true }, orderBy: { createdAt: 'asc' } });
+    const list = await prisma.paymentAttempt.findMany({ where: { userId: req.user.id }, include: { invoice: true, batch: true }, orderBy: { createdAt: 'asc' } });
     res.type('text/csv').attachment('skypay-payments.csv').send(paymentsCsv(list, (h) => near.explorerTx(h)));
   }));
 
