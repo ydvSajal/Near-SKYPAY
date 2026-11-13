@@ -12,6 +12,23 @@ spend outside those rules.
 > no execution. See [CLAIMS.md](CLAIMS.md)
 > for what is implemented, tested, and proven on-chain, with links.
 
+## Live demo
+
+| | URL |
+|---|---|
+| App | **https://near-skypay.vercel.app** |
+| API + x402 facilitator | https://skypay-near-api.onrender.com ([`/health`](https://skypay-near-api.onrender.com/health)) |
+
+Register, fill in business details, skip or connect Notion, then click **Create NEAR account**. The **Setup** button in
+the header shows which steps are done and lets you finish or edit them later.
+
+* **First request can take 30-50 s.** The API runs on Render's free plan and sleeps when idle. Reload once if the
+  first page load times out.
+* **Testnet only.** Accounts are created on NEAR testnet and paid for by SkyPay's sponsor account, which holds a
+  limited amount of testnet NEAR (each new company uses about 2.4). If account creation fails with an internal
+  error, the sponsor needs a top-up (`npm run near:bootstrap`, see below).
+* Hosting: frontend on Vercel, API on Render (`render.yaml`), Postgres on Neon.
+
 ---
 
 ## For the bookkeeper: what SkyPay does
@@ -93,7 +110,7 @@ npm ci
 cp .env.example .env            # set DATABASE_URL=postgresql://postgres:skypay@localhost:5434/skypay and JWT_SECRET
 npx prisma db push
 npm run near:bootstrap          # creates the testnet sponsor + test token; writes secrets to .env.near (gitignored)
-npm test                        # expect: 16 pass, 0 fail
+npm test                        # expect: 17 pass, 0 fail
 node server.js                  # expect: "NEAR testnet: token ..., relayer ..."
 ```
 
@@ -111,11 +128,15 @@ npm run build && npx next start -p 3000
 
 ### 3. Walk through it
 
-1. Open http://localhost:3000, register, then click **Finance · NEAR** in the dashboard header.
-   → **See:** "Set up your company on NEAR".
-2. Click **Create company NEAR account** (~30 s).
+Locally use http://localhost:3000; or use the live app at https://near-skypay.vercel.app.
+
+1. Register. Onboarding asks for business details (printed as the seller on invoices), Notion (optional, can be
+   skipped) and the NEAR account.
+   → **See:** step 4, "Create your NEAR company account".
+2. Click **Create NEAR account** (~30 s).
    → **See:** receiving account, vault and agent account with explorer links. You bought no NEAR.
-3. Click **Owner key backup** and keep the file. (The key exists only in this browser.)
+   Skipped a step? The **Setup** button in the header shows each step as *Connected* / *Not set up* and finishes it later.
+3. Click **Download owner key backup** and keep the file. (The key exists only in this browser.) Then open **Finance**.
 4. Create an invoice: client email, one line item `Design sprint · 1 · 10`, click **Create & email invoice**.
    → **See:** `INV-0001 … pending`; the backend log shows the invoice email (fixture mode if no SMTP).
 5. Open the invoice link in a private window. Click **Connect wallet & pay**, pick MyNearWallet or Meteor, approve one
@@ -153,6 +174,19 @@ cd contracts
 cargo test -p skypay-vault --lib                                   # 19 unit tests
 cargo build --release --target wasm32-unknown-unknown && cargo test -p skypay-vault --test sandbox   # real token, real callbacks
 ```
+
+### Deploying your own copy
+
+1. **Database:** create a Neon (or any Postgres) database, then from `agenPay/agenpay-backend` run
+   `DATABASE_URL=<url> npx prisma db push`.
+2. **API:** create a Render service from `render.yaml` (Blueprint). Paste the `sync: false` values: `DATABASE_URL`,
+   the NEAR values from your `.env.near`, `GEMINI_API_KEY`, Notion OAuth keys, and set `BASE_URL` /
+   `NOTION_REDIRECT_URI` to the service URL (`https://<service>.onrender.com/api/notion/callback`).
+3. **Frontend:** import the repo on Vercel with root directory `agenPay/agenpay-frontend` and
+   `NEXT_PUBLIC_API_URL=https://<service>.onrender.com`.
+4. Set `FRONTEND_URL` on the API to the Vercel URL (CORS and links in emails), and add the Notion redirect URI to
+   your Notion integration.
+5. Keep the sponsor funded: `npm run near:bootstrap` locally (same `.env.near`) tops it up from the testnet faucet.
 
 ---
 
