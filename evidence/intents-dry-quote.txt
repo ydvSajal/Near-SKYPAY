@@ -1,0 +1,8 @@
+# NEAR Intents 1Click dry quotes, 2026-11-13T08:24:23.373Z
+# Invoice total: 10 USDC on NEAR (EXACT_OUTPUT). dry=true: no deposit address issued, no funds moved.
+# Refund addresses are public example addresses used only to satisfy request validation.
+
+Base USDC      send 10.103045 USDC (min 10002014 base units, ~$10.0986) -> receive 10.0 USDC on NEAR | ~35s | refundFee 2400 | appFees [1] bps | correlationId 5a611e1e-9244-4190-a97e-811f6420d4a3
+Arbitrum USDC  send 10.101917 USDC (min 10000897 base units, ~$10.0975) -> receive 10.0 USDC on NEAR | ~25s | refundFee 5300 | appFees [1] bps | correlationId 398545a7-cf87-4be3-b661-edffc241294f
+Ethereum ETH   send 0.005251965774604092 ETH (min 5199446116858051 base units, ~$10.1250) -> receive 10.0 USDC on NEAR | ~45s | refundFee 35000000000000 | appFees [20] bps | correlationId 75b4d571-5749-4766-b837-1dafa04ddb8c
+Solana SOL     send 0.127252191 SOL (min 125979669 base units, ~$10.1267) -> receive 10.0 USDC on NEAR | ~20s | refundFee 126380 | appFees [20] bps | correlationId bc6b7ab9-ea0f-475e-880c-7e3fa33d4aa7

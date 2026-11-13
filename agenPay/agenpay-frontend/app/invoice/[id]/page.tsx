@@ -50,6 +50,105 @@ function StatusPill({ status }: { status: PublicInvoice["status"] }) {
   )
 }
 
+interface SourceAsset { assetId: string; symbol: string; blockchain: string; decimals: number }
+interface DryQuote {
+  note: string
+  source: SourceAsset
+  destination: { recipient: string }
+  amountInFormatted: string
+  amountInUsd: string
+  amountOutFormatted: string
+  timeEstimateSec: number
+  appFees: Array<{ fee: number }>
+  deadline: string
+  correlationId: string
+}
+
+// NEAR Intents 1Click price preview. Dry quote only: no deposit address, nothing can be paid from here.
+function CrossChainQuote({ invoiceId, total }: { invoiceId: string; total: string }) {
+  const [assets, setAssets] = useState<SourceAsset[]>([])
+  const [asset, setAsset] = useState("")
+  const [refundTo, setRefundTo] = useState("")
+  const [quote, setQuote] = useState<DryQuote | null>(null)
+  const [err, setErr] = useState("")
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    authService
+      .api<{ assets: SourceAsset[] }>("/api/public/intents/assets")
+      .then((r) => {
+        setAssets(r.assets)
+        setAsset(r.assets.find((a) => a.blockchain === "base" && a.symbol === "USDC")?.assetId || r.assets[0]?.assetId || "")
+      })
+      .catch((e) => setErr(e instanceof Error ? e.message : "Cross-chain quotes unavailable"))
+  }, [])
+
+  const getQuote = async () => {
+    setBusy(true)
+    setErr("")
+    setQuote(null)
+    try {
+      const r = await authService.api<{ quote: DryQuote }>(`/api/public/invoices/${invoiceId}/intents-quote`, {
+        method: "POST",
+        body: JSON.stringify({ originAsset: asset, refundTo: refundTo.trim() }),
+      })
+      setQuote(r.quote)
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Quote failed")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="rounded-lg border border-slate-200 p-3">
+      <p className="text-xs font-semibold text-slate-700">Pay from another chain · NEAR Intents (quote preview)</p>
+      <p className="mt-1 text-xs text-slate-600">
+        See what it would cost to deliver exactly {total} USDC on NEAR from another chain. This is a live 1Click <b>dry quote</b>:
+        no deposit address is issued and nothing can be paid here. NEAR Intents has no testnet.
+      </p>
+      <div className="mt-2 grid gap-2 sm:grid-cols-[auto_1fr_auto]">
+        <select
+          value={asset}
+          onChange={(e) => setAsset(e.target.value)}
+          aria-label="Source asset"
+          className="h-9 rounded-md border border-slate-300 bg-white px-2 text-sm"
+        >
+          {assets.map((a) => (
+            <option key={a.assetId} value={a.assetId}>
+              {a.symbol} on {a.blockchain}
+            </option>
+          ))}
+        </select>
+        <Input placeholder="Your refund address on that chain" value={refundTo} onChange={(e) => setRefundTo(e.target.value)} />
+        <Button onClick={getQuote} disabled={busy || !asset || !refundTo} variant="outline" size="sm" className="h-9 border-slate-300 bg-white">
+          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Get quote"}
+        </Button>
+      </div>
+      {quote && (
+        <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 rounded-lg bg-slate-50 p-3 text-xs">
+          <dt className="text-slate-500">You would send</dt>
+          <dd className="tabular-nums">
+            {quote.amountInFormatted} {quote.source.symbol} on {quote.source.blockchain} (~${Number(quote.amountInUsd).toFixed(2)})
+          </dd>
+          <dt className="text-slate-500">Merchant receives</dt>
+          <dd className="tabular-nums">{quote.amountOutFormatted} USDC on NEAR</dd>
+          <dt className="text-slate-500">Provider fee</dt>
+          <dd>{quote.appFees.map((f) => `${f.fee / 100}%`).join(" + ") || "none"} (included above)</dd>
+          <dt className="text-slate-500">Est. time</dt>
+          <dd>~{quote.timeEstimateSec}s</dd>
+          <dt className="text-slate-500">Quote expires</dt>
+          <dd>{new Date(quote.deadline).toLocaleTimeString()}</dd>
+          <dt className="text-slate-500">Reference</dt>
+          <dd className="break-all font-mono">{quote.correlationId}</dd>
+          <dd className="col-span-2 mt-1 text-slate-500">{quote.note}</dd>
+        </dl>
+      )}
+      {err && <p className="mt-2 text-xs text-[#d03b3b]">{err}</p>}
+    </div>
+  )
+}
+
 export default function InvoicePage() {
   const { id } = useParams<{ id: string }>()
   const [inv, setInv] = useState<PublicInvoice | null>(null)
@@ -246,9 +345,7 @@ export default function InvoicePage() {
               </div>
             )}
 
-            <p className="text-xs text-slate-500">
-              Paying from another chain (NEAR Intents) is planned for mainnet and is not enabled on this testnet invoice.
-            </p>
+            <CrossChainQuote invoiceId={inv.id} total={inv.amountFormatted} />
             {notice && <p className="text-sm text-[#d03b3b]">{notice}</p>}
           </div>
         ) : (

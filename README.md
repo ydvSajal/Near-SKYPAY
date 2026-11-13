@@ -8,7 +8,8 @@ spending rules that a NEAR smart contract enforces. The agent, and SkyPay's own 
 spend outside those rules.
 
 > **Honesty box.** Everything below runs on **NEAR testnet** with a **test token (tUSDC) that has no value**.
-> Real USDC and cross-chain payment (NEAR Intents) are not live in this build. See [CLAIMS.md](CLAIMS.md)
+> Real USDC is not used, and cross-chain payment (NEAR Intents) is a **live price quote only**: no deposit address,
+> no execution. See [CLAIMS.md](CLAIMS.md)
 > for what is implemented, tested, and proven on-chain, with links.
 
 ---
@@ -92,7 +93,7 @@ npm ci
 cp .env.example .env            # set DATABASE_URL=postgresql://postgres:skypay@localhost:5434/skypay and JWT_SECRET
 npx prisma db push
 npm run near:bootstrap          # creates the testnet sponsor + test token; writes secrets to .env.near (gitignored)
-npm test                        # expect: 9 pass, 0 fail
+npm test                        # expect: 12 pass, 0 fail
 node server.js                  # expect: "NEAR testnet: token ..., relayer ..."
 ```
 
@@ -119,6 +120,8 @@ npm run build && npx next start -p 3000
    → **See:** `INV-0001 … pending`; the backend log shows the invoice email (fixture mode if no SMTP).
 5. Open the invoice link in a private window. Click **Pay with testnet demo wallet**.
    → **See:** "Payment verified on NEAR" with the transaction hash; status is **paid** in Finance; a receipt job runs.
+   (Before paying, the **Pay from another chain** panel can fetch a live NEAR Intents quote: pick e.g. *USDC on base*,
+   enter a refund address on that chain, click **Get quote** → amount to send, provider fee, ETA and expiry. Quote only.)
 6. Click **Get 100 test tUSDC**, then **Fund vault** with 50.
    → **See:** "Vault available 50", and an explorer link showing the relayer (not you) paid gas.
 7. Set agent limits 25 per payment / 40 per day, click **Authorize agent**.
@@ -138,6 +141,7 @@ cannot pay an address it was given in chat or email; it can only use payees the 
 cd agenPay/agenpay-backend
 node scripts/near-e2e.mjs        # vault lifecycle on testnet incl. refusals -> evidence/near-testnet-e2e.txt
 node scripts/api-smoke.mjs       # full HTTP flow (server must be running) -> evidence/api-smoke-testnet.txt
+node scripts/intents-quote.mjs   # live NEAR Intents 1Click dry quotes, no keys needed -> evidence/intents-dry-quote.txt
 ```
 
 Contract tests (Linux/WSL):
@@ -160,6 +164,7 @@ cargo build --release --target wasm32-unknown-unknown && cargo test -p skypay-va
 | `agenPay/agenpay-backend/lib/skypay.js` | Invoice, settlement, payee and vault-payment rules |
 | `agenPay/agenpay-backend/lib/nearRouter.js` | HTTP routes (private + public checkout + CSV) |
 | `agenPay/agenpay-backend/lib/outbox.js` | Idempotent email / Notion jobs |
+| `agenPay/agenpay-backend/lib/intents.js` | NEAR Intents 1Click adapter (dry quotes only) |
 | `agenPay/agenpay-frontend/app/finance` | Owner workspace |
 | `agenPay/agenpay-frontend/app/invoice/[id]` | Public checkout page |
 | `evidence/` | Test output and live testnet transcripts with explorer links |
@@ -173,7 +178,8 @@ cargo build --release --target wasm32-unknown-unknown && cargo test -p skypay-va
   **[compare baseline-pre-near...main](../../compare/baseline-pre-near...main)**.
 * **New during the hackathon:** the vault contract and tests, test token, NEAR adapter and sponsored relay,
   invoice/settlement model, outbox, CSV exports, agent NEAR tools, Finance and invoice pages, a self-hosted
-  x402 facilitator on NEAR (`lib/x402.js`: `/x402pay/:id`, `/x402/supported|verify|settle`), evidence.
+  x402 facilitator on NEAR (`lib/x402.js`: `/x402pay/:id`, `/x402/supported|verify|settle`), NEAR Intents 1Click
+  dry-quote checkout panel (`lib/intents.js`), evidence.
 * **Removed:** the legacy Sei/EVM code (Privy wallet, Sei x402 service and facilitator, wagmi/RainbowKit) was
   deleted from backend and frontend; it survives only in the `baseline-pre-near` tag and `docs/legacy/`.
 * **Tools and libraries:** near-sdk-rs, near-contract-standards, near-workspaces, near-api-js, Express, Prisma,
@@ -182,6 +188,6 @@ cargo build --release --target wasm32-unknown-unknown && cargo test -p skypay-va
 
 ## Known limitations
 
-See [CLAIMS.md](CLAIMS.md#limitations). In short: testnet only, test token instead of USDC, no cross-chain
-(NEAR Intents) collection yet, no batches, refunds are not automated, and the owner key lives in browser
+See [CLAIMS.md](CLAIMS.md#limitations) and [MIGRATION.md](MIGRATION.md) for design decisions. In short: testnet only,
+test token instead of USDC, cross-chain (NEAR Intents) is quote-only, no batches, refunds are not automated, and the owner key lives in browser
 storage (with a downloadable backup).

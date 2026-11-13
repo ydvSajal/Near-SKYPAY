@@ -11,7 +11,8 @@ Evidence files:
 * `evidence/api-smoke-testnet.txt` — full HTTP flow against the running backend on testnet
 * `evidence/x402-testnet.txt` — x402 pay link paid by a gasless payer on testnet, then replayed (13 Nov 2026 UTC)
 * `evidence/agent-smoke-testnet.txt` — agent creates an invoice, pays an allowed payee, refuses a chat-supplied address and an over-limit payment
-* `npm test` in `agenPay/agenpay-backend` — 9 node:test cases (money, guards, x402)
+* `evidence/intents-dry-quote.txt` — live NEAR Intents 1Click dry quotes (Base/Arbitrum USDC, ETH, SOL → 10 USDC on NEAR)
+* `npm test` in `agenPay/agenpay-backend` — 12 node:test cases (money, guards, x402, intents)
 
 > `near-testnet-e2e.txt`, `api-smoke-testnet.txt` and `agent-smoke-testnet.txt` were re-run on 13 Nov 2026 with the
 > current sponsor (`skypay-sponsor-f97ec0.testnet`, top-level account names). `x402-testnet.txt` pays an invoice owned by
@@ -48,7 +49,8 @@ Evidence files:
 | x402 pay link: HTTP 402 with exact NEAR requirements; payer signs one gasless `ft_transfer` delegate; self-hosted facilitator verifies and settles | `lib/x402.js` | `npm test` x402; `scripts/x402-pay.mjs`; `evidence/x402-testnet.txt` | unit + testnet |
 | Facilitator relays only an exact-shape `ft_transfer` to the invoice receiver; replay returns the existing receipt | `lib/x402.js` payment-delegate guard | `npm test` x402; replay step in `evidence/x402-testnet.txt` | unit + testnet |
 | Unknown outcomes are reconciled from chain, not resent | `SkyPay.reconcile` | code review | implemented, not exercised live |
-| Pay from another chain via NEAR Intents (1Click) | — | — | **not built** |
+| Checkout shows a live NEAR Intents 1Click quote (EXACT_OUTPUT to USDC on NEAR) for a payer-chosen source asset, with fee, time and expiry; amount and destination come only from the invoice | `lib/intents.js`, `CrossChainQuote` in `app/invoice/[id]/page.tsx` | `npm test` intents; `scripts/intents-quote.mjs`; `evidence/intents-dry-quote.txt` | unit + **live mainnet dry quote** |
+| Pay from another chain via NEAR Intents (deposit address, execution, settlement tracking) | — | — | **not built** (no Intents testnet; quotes are `dry: true`) |
 | Real USDC | — | — | **not built** (test token on testnet) |
 
 ## Acceptance checks from the build brief
@@ -58,7 +60,7 @@ Evidence files:
 | A01 invoice by prompt | agent tool `create_invoice`; HTTP path tested (api-smoke 3) |
 | A02 email without wallet | invoice uses company account; no payout address is invented |
 | A03 repeated email job | idempotency key per invoice/job |
-| A04 cross-chain route shown | **not built** |
+| A04 cross-chain route shown | live 1Click dry quote: token, network, amount to send, fee, time, expiry (`evidence/intents-dry-quote.txt`); not executable |
 | A05 insufficient deposit | unit test: below-total transfer rejected; invoice stays pending |
 | A06 settles once | api-smoke 6-8 |
 | A07 Notion/email failure | outbox retries; settlement already committed |
@@ -84,7 +86,10 @@ Evidence files:
 
 * **Testnet only, test token.** `tUSDC` is a SkyPay-deployed NEP-141 with open minting. It has no value. Pointing
   `NEAR_USDC_CONTRACT` at a real USDC contract is a config change, but mainnet is not tested.
-* **No cross-chain collection.** NEAR Intents has no testnet; the 1Click integration is not built.
+* **Cross-chain is quote-only.** The checkout fetches real 1Click quotes (`dry: true`), but no deposit address is
+  issued and nothing is executed: NEAR Intents has no testnet, and a testnet invoice cannot receive mainnet USDC, so
+  testnet quotes are priced to a placeholder mainnet recipient (`INTENTS_QUOTE_RECIPIENT`, default `intents.near`).
+  Observed unauthenticated provider fee in the quote: 0.01% stable→stable, 0.2% for volatile assets.
 * **Demo payer.** On testnet, the "Pay with testnet demo wallet" button sends a real testnet transaction from
   SkyPay's sponsor account. It is clearly labeled and goes through the same verification as any payment.
 * **Owner key in browser storage.** Convenient for the demo; a downloadable backup is offered. A wallet-selector

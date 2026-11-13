@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import rateLimit from 'express-rate-limit';
 import { formatUnits, parseUnits } from './near/units.js';
 import { invoicesCsv, paymentsCsv } from './csvExport.js';
+import { dryQuote, sourceAssets } from './intents.js';
 
 const wrap = (fn) => (req, res) =>
   fn(req, res).catch((e) => {
@@ -143,6 +144,17 @@ export function createNearRouter({ prisma, near, skypay, authenticateToken }) {
   r.post('/api/public/invoices/:id/confirm', publicLimiter, wrap(async (req, res) => {
     const out = await skypay.confirmInvoicePayment(req.params.id, req.body || {});
     res.json({ status: out.invoice.status, alreadyPaid: !!out.alreadyPaid, txUrl: out.invoice.settledTxHash ? near.explorerTx(out.invoice.settledTxHash) : null });
+  }));
+
+  // NEAR Intents 1Click: DRY quotes only. A price/route preview, never a deposit address or a settlement.
+  r.get('/api/public/intents/assets', publicLimiter, wrap(async (_req, res) => {
+    res.json({ assets: await sourceAssets() });
+  }));
+
+  r.post('/api/public/invoices/:id/intents-quote', publicLimiter, wrap(async (req, res) => {
+    const i = await prisma.invoice.findUnique({ where: { id: req.params.id } });
+    if (!i) return res.status(404).json({ error: 'invoice not found' });
+    res.json({ quote: await dryQuote(i, { originAsset: req.body?.originAsset, refundTo: req.body?.refundTo }) });
   }));
 
   // TESTNET demo payer: a real testnet transfer of TEST tokens from SkyPay's demo wallet, then verified like any other payment.
