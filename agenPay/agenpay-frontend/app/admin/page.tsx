@@ -174,8 +174,8 @@ function UsersPanel() {
             {items.map((u) => (
               <tr key={u.id} className="border-b">
                 <td className="py-2 pr-4">{u.email}</td>
-                <td className="py-2 pr-4">{u.name || "—"}</td>
-                <td className="py-2 pr-4 font-mono text-xs">{u.nearAccountId || "—"}</td>
+                <td className="py-2 pr-4">{u.name || "None"}</td>
+                <td className="py-2 pr-4 font-mono text-xs">{u.nearAccountId || "None"}</td>
                 <td className="py-2 pr-4">{u._count.invoices}</td>
                 <td className="py-2 pr-4">{new Date(u.createdAt).toLocaleDateString()}</td>
                 <td className="py-2"><Button variant="ghost" size="sm" onClick={() => del(u.id, u.email)}><Trash2 className="h-4 w-4 text-red-600" /></Button></td>
@@ -230,7 +230,7 @@ function ConfigPanel() {
               <tr key={c.id} className="border-b">
                 <td className="py-2 pr-4 font-mono text-xs">{c.key}</td>
                 <td className="py-2 pr-4 font-mono text-xs break-all">{c.value}</td>
-                <td className="py-2 pr-4 text-slate-500">{c.description || "—"}</td>
+                <td className="py-2 pr-4 text-slate-500">{c.description || "None"}</td>
                 <td className="py-2"><Button variant="ghost" size="sm" onClick={() => del(c.key)}><Trash2 className="h-4 w-4 text-red-600" /></Button></td>
               </tr>
             ))}

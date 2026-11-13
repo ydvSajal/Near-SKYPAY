@@ -1,35 +1,28 @@
 import type React from "react"
-import type { Metadata } from "next"
-import { Inter, Cormorant_Garamond } from "next/font/google"
+import type { Metadata, Viewport } from "next"
+import { Geist, Geist_Mono } from "next/font/google"
 import { AuthProvider } from "@/lib/auth-context"
 import "./globals.css"
 
-const inter = Inter({ subsets: ["latin"], variable: "--font-inter" })
-
-const cormorant = Cormorant_Garamond({
-  subsets: ["latin"],
-  weight: ["300", "400", "500", "600", "700"],
-  style: ["normal", "italic"],
-  variable: "--font-cormorant",
-})
+const geist = Geist({ subsets: ["latin"], variable: "--font-geist-sans" })
+const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono" })
 
 export const metadata: Metadata = {
-  title: "SKYPay - Agentic Payment Infrastructure",
+  title: "SKYPay - AI payment agent on NEAR",
   description:
-    "SKYPay is the first agentic payment infrastructure. An AI agent that invoices customers and pays approved suppliers in USDC on NEAR, within limits enforced by a smart contract.",
+    "An AI agent that invoices customers and pays approved suppliers in USDC on NEAR, within limits enforced by a smart contract.",
 }
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode
-}) {
+export const viewport: Viewport = {
+  themeColor: "#f4f6f5",
+  colorScheme: "light",
+}
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
-      <body className={`${inter.variable} ${cormorant.variable} ${inter.className} min-h-screen bg-background text-foreground antialiased`} suppressHydrationWarning={true}>
-        <AuthProvider>
-          {children}
-        </AuthProvider>
+    <html lang="en" className={`${geist.variable} ${geistMono.variable}`}>
+      <body className="min-h-[100dvh] bg-background font-sans text-foreground antialiased" suppressHydrationWarning>
+        <AuthProvider>{children}</AuthProvider>
       </body>
     </html>
   )

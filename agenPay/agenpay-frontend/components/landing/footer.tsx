@@ -1,100 +1,41 @@
 import Link from "next/link"
-import { Globe, LinkIcon, Users } from "lucide-react"
+import { Logo } from "@/components/brand/logo"
 
-const columns = [
-  {
-    title: "AGENT FEATURES",
-    links: [
-      { label: "NEAR Invoices", href: "/docs#services" },
-      { label: "Agent Spending Limits", href: "/docs#key-features" },
-      { label: "Notion Integration", href: "/docs#services" },
-      { label: "x402 Pay Links", href: "/docs#how-it-works" },
-    ],
-  },
-  {
-    title: "DEVELOPERS",
-    links: [
-      { label: "Agent API", href: "/docs#services" },
-      { label: "Notion Templates", href: "/docs#getting-started" },
-      { label: "Webhooks", href: "/docs#services" },
-      { label: "Agent Status", href: "/dashboard" },
-    ],
-  },
-  {
-    title: "COMPANY",
-    links: [
-      { label: "About SKYPay", href: "/#hero" },
-      { label: "Agent Blog", href: "/docs" },
-      { label: "Careers", href: "mailto:careers@skypay.ai" },
-      { label: "Contact", href: "mailto:hello@skypay.ai" },
-    ],
-  },
+const product = [
+  { label: "Features", href: "/#features" },
+  { label: "Pricing", href: "/#pricing" },
+  { label: "Docs", href: "/docs" },
 ]
-
-const socials = [
-  { Icon: Globe, label: "Website", href: "/#hero" },
-  { Icon: Users, label: "Community", href: "/docs" },
-  { Icon: LinkIcon, label: "Integrations", href: "/docs#services" },
+const account = [
+  { label: "Sign in", href: "/auth/login" },
+  { label: "Dashboard", href: "/dashboard" },
+  { label: "Finance", href: "/finance" },
 ]
 
 export function Footer() {
   return (
-    <footer
-      className="relative overflow-hidden bg-[hsl(220,30%,98%)] pt-11 md:pt-16"
-    >
-      <div className="relative z-10 mx-auto max-w-[1200px] px-4 pb-10 md:px-6 md:pb-14">
-        <div className="mb-8 grid gap-7 sm:grid-cols-2 md:mb-12 md:gap-12 lg:grid-cols-[2fr_1fr_1fr_1fr]">
-          <div>
-            <h3 className="mb-2.5 text-[22px] font-bold tracking-tight text-[#0f0f0f]">
-              SKYPay
-            </h3>
-            <p className="mb-5 max-w-60 text-sm leading-[1.7] text-gray-400">
-              AI payment agent for invoices and supplier payments in USDC on NEAR.
-            </p>
-            <div className="flex gap-2">
-              {socials.map(({ Icon, label, href }) => (
-                <Link
-                  key={label}
-                  href={href}
-                  aria-label={label}
-                  className="flex h-9 w-9 items-center justify-center rounded-lg border border-black/5 bg-black/[0.04] transition-colors hover:bg-black/10"
-                >
-                  <Icon size={15} className="text-gray-600" />
-                </Link>
+    <footer className="border-t border-border px-5 py-14 md:px-8">
+      <div className="mx-auto grid max-w-[1200px] gap-10 md:grid-cols-[2fr_1fr_1fr]">
+        <div>
+          <Logo />
+          <p className="mt-4 max-w-xs text-sm leading-relaxed text-muted-foreground">
+            AI payment agent for invoices and supplier payments in USDC on NEAR. Testnet build: tUSDC has no value.
+          </p>
+        </div>
+        {[["Product", product], ["Account", account]].map(([title, items]) => (
+          <nav key={title as string} aria-label={title as string}>
+            <h2 className="text-sm font-medium">{title as string}</h2>
+            <ul className="mt-4 space-y-2.5">
+              {(items as typeof product).map((l) => (
+                <li key={l.label}>
+                  <Link href={l.href} className="text-sm text-muted-foreground transition-colors hover:text-foreground">{l.label}</Link>
+                </li>
               ))}
-            </div>
-          </div>
-
-          {columns.map(({ title, links }) => (
-            <div key={title}>
-              <h4 className="mb-4 text-[11px] font-bold uppercase tracking-[0.1em] text-gray-400">
-                {title}
-              </h4>
-              <ul className="flex flex-col gap-2.5">
-                {links.map((link) => (
-                  <li key={link.label}>
-                    <Link
-                      href={link.href}
-                      className="text-sm text-gray-600 transition-colors hover:text-[#0f0f0f]"
-                    >
-                      {link.label}
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
-        </div>
-
-        <div className="flex flex-col gap-3 border-t border-black/5 pt-6 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-[13px] text-gray-400">
-            Copyright SKYPay {new Date().getFullYear()}
-          </p>
-          <p className="text-[13px] text-gray-400">
-            All rights reserved. Powered by X402Pay &amp; Notion.
-          </p>
-        </div>
+            </ul>
+          </nav>
+        ))}
       </div>
+      <p className="mx-auto mt-12 max-w-[1200px] text-xs text-muted-foreground">Copyright SKYPay {new Date().getFullYear()}. MIT licensed.</p>
     </footer>
   )
 }

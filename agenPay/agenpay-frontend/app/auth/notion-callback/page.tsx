@@ -4,16 +4,8 @@ import { Suspense, useEffect, useRef, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
 import { authService } from "@/lib/auth"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Alert, AlertDescription } from "@/components/ui/alert"
-import {
-  Database,
-  CheckCircle,
-  AlertCircle,
-  RefreshCw,
-  ArrowRight
-} from "lucide-react"
+import { OnboardingShell, StepPanel } from "@/components/onboarding/shell"
+import { Database, CheckCircle, AlertCircle, ArrowRight, Loader2 } from "lucide-react"
 
 function NotionCallbackContent() {
   const router = useRouter()
@@ -85,7 +77,7 @@ function NotionCallbackContent() {
                 await refreshUserRef.current()
                 router.push('/auth/login?step=near')
               }
-            } catch (err) {
+            } catch {
               console.log('Still setting up workspace...')
             }
           }, 2000) // Poll every 2 seconds
@@ -157,104 +149,56 @@ function NotionCallbackContent() {
 
   if (status === 'processing') {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 text-slate-900">
-        <Card className="w-full max-w-md overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm ">
-          <CardContent className="pt-6">
-            <div className="text-center">
-              <div className="mx-auto mb-4 w-16 h-16 bg-primary   rounded-2xl flex items-center justify-center shadow-lg ">
-                <RefreshCw className="h-8 w-8 text-white animate-spin" />
+      <OnboardingShell step="notion">
+        <StepPanel title="Setting up your Notion workspace" description="Creating the SKYPay page and payment databases. This usually takes 10 to 15 seconds.">
+          <div role="status" className="grid gap-3">
+            {[72, 56, 64].map((w, i) => (
+              <div key={i} className="flex items-center gap-3">
+                <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" />
+                <span className="skeleton h-3" style={{ width: `${w}%` }} />
               </div>
-              <h2 className="text-xl font-bold text-gray-900 mb-2">
-                Setting Up Your Notion Workspace
-              </h2>
-              <p className="text-gray-600 mb-4">
-                Creating your payment tracking databases and workspace...
-              </p>
-              <div className="text-sm text-gray-500">
-                This may take 10-15 seconds
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+            ))}
+            <span className="sr-only">Setting up your Notion workspace</span>
+          </div>
+        </StepPanel>
+      </OnboardingShell>
     )
   }
 
   if (status === 'success') {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 text-slate-900">
-        <Card className="w-full max-w-md overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm ">
-          <CardHeader className="text-center">
-            <div className="mx-auto mb-4 w-16 h-16 bg-primary   rounded-2xl flex items-center justify-center shadow-lg shadow-emerald-500/30">
-              <CheckCircle className="h-8 w-8 text-white" />
-            </div>
-            <CardTitle className="text-2xl font-bold text-green-900">
-              Workspace Created Successfully!
-            </CardTitle>
-          </CardHeader>
-          
-          <CardContent className="space-y-6">
-            <div className="p-4 bg-green-50 rounded-lg border border-green-200">
-              <h3 className="font-semibold text-green-900 mb-2">Created in your Notion:</h3>
-              <ul className="space-y-1 text-sm text-green-800">
-                <li>✅ AgenPay Workspace Page</li>
-                <li>✅ Incoming Payment Requests Database</li>
-                <li>✅ Outgoing Scheduled Payments Database</li>
-                <li>✅ All Transactions Database</li>
-              </ul>
-            </div>
-
-            <div className="text-center">
-              <p className="text-gray-600 mb-4">
-                Redirecting to NEAR account setup...
-              </p>
-              <Button onClick={() => router.push('/auth/login?step=near')} className="w-full">
-                <ArrowRight className="mr-2 h-4 w-4" />
-                Continue to NEAR Account Setup
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      <OnboardingShell step="notion">
+        <StepPanel title="Notion is connected" description="Next, create your NEAR company account. Redirecting in a moment.">
+          <ul className="grid gap-3">
+            {['SKYPay workspace page', 'Incoming payment requests database', 'Outgoing payments database', 'All transactions database'].map((t) => (
+              <li key={t} className="flex gap-3"><CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-success" />{t}</li>
+            ))}
+          </ul>
+          <button type="button" onClick={() => router.push('/auth/login?step=near')} className="press mt-8 inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground hover:bg-primary/90">
+            Continue to NEAR account setup <ArrowRight className="h-4 w-4" />
+          </button>
+        </StepPanel>
+      </OnboardingShell>
     )
   }
 
   if (status === 'error') {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 text-slate-900">
-        <Card className="w-full max-w-md overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm ">
-          <CardHeader className="text-center">
-            <div className="mx-auto mb-4 w-16 h-16 bg-primary from-red-600  rounded-2xl flex items-center justify-center shadow-lg shadow-red-500/25">
-              <AlertCircle className="h-8 w-8 text-white" />
-            </div>
-            <CardTitle className="text-2xl font-bold text-red-900">
-              Connection Failed
-            </CardTitle>
-          </CardHeader>
-
-          <CardContent className="space-y-6">
-            <Alert variant="destructive">
-              <AlertCircle className="h-4 w-4" />
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-
-            <div className="space-y-3">
-              <Button onClick={handleRetry} className="w-full">
-                <Database className="mr-2 h-4 w-4" />
-                Try Again
-              </Button>
-
-              <Button
-                variant="outline"
-                onClick={() => router.push('/auth/login')}
-                className="w-full"
-              >
-                Back to Login
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      <OnboardingShell step="notion">
+        <StepPanel title="Notion connection failed" description="You can try again, or continue without Notion and connect it later from the dashboard.">
+          <div role="alert" className="flex gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />{error}
+          </div>
+          <div className="mt-8 grid gap-3">
+            <button type="button" onClick={handleRetry} className="press inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground hover:bg-primary/90">
+              <Database className="h-4 w-4" /> Try again
+            </button>
+            <button type="button" onClick={() => router.push('/auth/login?step=near')} className="press inline-flex h-11 w-full items-center justify-center rounded-lg border border-border bg-card px-5 text-sm font-medium hover:bg-muted">
+              Continue without Notion
+            </button>
+          </div>
+        </StepPanel>
+      </OnboardingShell>
     )
   }
 

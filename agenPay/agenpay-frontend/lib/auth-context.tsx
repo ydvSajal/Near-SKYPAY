@@ -77,7 +77,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     checkAuth()
-  }, [isClient])
+  }, [isClient, isTokenInvalidError])
 
   const login = useCallback(async (email: string, password: string) => {
     try {

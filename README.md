@@ -172,9 +172,10 @@ cargo build --release --target wasm32-unknown-unknown && cargo test -p skypay-va
   [`baseline-pre-near`](../../tree/baseline-pre-near). All NEAR work is after it:
   **[compare baseline-pre-near...main](../../compare/baseline-pre-near...main)**.
 * **New during the hackathon:** the vault contract and tests, test token, NEAR adapter and sponsored relay,
-  invoice/settlement model, outbox, CSV exports, agent NEAR tools, Finance and invoice pages, evidence.
-* **Still present but not part of the NEAR submission:** the legacy Sei/x402 payment code (`X402PayService`,
-  facilitator, wagmi wallet connect). It is not used by the NEAR flow.
+  invoice/settlement model, outbox, CSV exports, agent NEAR tools, Finance and invoice pages, a self-hosted
+  x402 facilitator on NEAR (`lib/x402.js`: `/x402pay/:id`, `/x402/supported|verify|settle`), evidence.
+* **Removed:** the legacy Sei/EVM code (Privy wallet, Sei x402 service and facilitator, wagmi/RainbowKit) was
+  deleted from backend and frontend; it survives only in the `baseline-pre-near` tag and `docs/legacy/`.
 * **Tools and libraries:** near-sdk-rs, near-contract-standards, near-workspaces, near-api-js, Express, Prisma,
   Next.js, LangChain/LangGraph. Code in this hackathon window was written with AI assistance (Claude Code).
 * No competitor code was reused.

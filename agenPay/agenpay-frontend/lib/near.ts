@@ -32,6 +32,22 @@ export function importOwnerKey(userId: string, secret: string) {
   localStorage.setItem(keyName(userId), secret.trim())
 }
 
+/** Save the browser-held owner key as a text file. Returns false when no key is stored. */
+export function downloadOwnerKeyBackup(userId: string, company: string | null): boolean {
+  const secret = getStoredOwnerKey(userId)
+  if (!secret) return false
+  const blob = new Blob(
+    [`SkyPay company owner key for ${company}\nKeep this file private. Anyone with it controls the company account.\n\n${secret}\n`],
+    { type: "text/plain" },
+  )
+  const a = document.createElement("a")
+  a.href = URL.createObjectURL(blob)
+  a.download = `skypay-owner-key-${company}.txt`
+  a.click()
+  URL.revokeObjectURL(a.href)
+  return true
+}
+
 function toBase64(bytes: Uint8Array): string {
   let s = ""
   for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i])
