@@ -165,6 +165,7 @@ export class SkyPay {
         data: { status: refused ? 'failed' : 'unknown', error: String(e.message).slice(0, 300), txHash: e.txHash || null },
       });
     }
+    await this.outbox.enqueue(userId, 'notion_dashboard', `notion_dashboard:${attempt.id}:${attempt.status}`, {}).catch(() => {});
     return attempt;
   }
 

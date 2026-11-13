@@ -93,7 +93,7 @@ npm ci
 cp .env.example .env            # set DATABASE_URL=postgresql://postgres:skypay@localhost:5434/skypay and JWT_SECRET
 npx prisma db push
 npm run near:bootstrap          # creates the testnet sponsor + test token; writes secrets to .env.near (gitignored)
-npm test                        # expect: 14 pass, 0 fail
+npm test                        # expect: 16 pass, 0 fail
 node server.js                  # expect: "NEAR testnet: token ..., relayer ..."
 ```
 

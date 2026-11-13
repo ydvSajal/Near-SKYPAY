@@ -2,6 +2,7 @@
 // are idempotent by key, retried with backoff, and never change financial truth (A03, A07, A20).
 import nodemailer from 'nodemailer';
 import { NotionService } from './NotionService.js';
+import { refreshDashboard } from './notionDashboard.js';
 import { formatUnits } from './near/units.js';
 
 const MAX_ATTEMPTS = 6;
@@ -69,17 +70,27 @@ export class Outbox {
 
   /** Create the Notion workspace, then backfill existing invoices. Retried by the outbox (backoff, 6 attempts).
    *  ponytail: a retry after a half-finished setup can leave a duplicate "SkyPay Workspace" page in Notion. */
-  async notionSetup(userId) {
+  async notionSetup(userId, force = false) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user?.notionApiKey) return 'skipped';
-    if (!user.notionWorkspaceId) await new NotionService(user.notionApiKey).completeIntegration(userId, user.notionApiKey);
+    const svc = new NotionService(user.notionApiKey);
+    if (!user.notionWorkspaceId || force) {
+      const old = user.notionWorkspaceId;
+      await svc.completeIntegration(userId, user.notionApiKey);
+      // force = redesign/rebuild: move our previous workspace page to Notion's trash (recoverable) so only one remains
+      if (force && old) await svc.notion.pages.update({ page_id: old, archived: true }).catch((e) => console.error('archive old workspace:', e.message));
+    }
     const invoices = await this.prisma.invoice.findMany({ where: { userId }, select: { id: true } });
-    for (const { id } of invoices) await this.enqueue(userId, 'notion_invoice', `notion_invoice:${id}:backfill`, { invoiceId: id });
+    // a fresh key per setup: a rebuilt workspace needs every row again
+    const run = Date.now();
+    for (const { id } of invoices) await this.enqueue(userId, 'notion_invoice', `notion_invoice:${id}:backfill:${run}`, { invoiceId: id });
+    await this.enqueue(userId, 'notion_dashboard', `notion_dashboard:${userId}:setup:${run}`, {});
     return 'live';
   }
 
   async handle(job) {
-    if (job.kind === 'notion_setup') return this.notionSetup(job.userId);
+    if (job.kind === 'notion_setup') return this.notionSetup(job.userId, !!job.payload?.force);
+    if (job.kind === 'notion_dashboard') return this.syncDashboard(job.userId);
     const invoice = await this.prisma.invoice.findUnique({ where: { id: job.payload.invoiceId }, include: { user: true } });
     if (!invoice) throw new Error('invoice missing');
     if (job.kind === 'invoice_email') return this.sendMail(invoice.customerEmail, ...this.invoiceMail(invoice));
@@ -159,6 +170,14 @@ export class Outbox {
     return [`Receipt: invoice ${i.number} paid (${this.money(i, i.settledAmount)})`, this.layout('Payment received', body, this.footer(i))];
   }
 
+  /** Refresh key figures and recent activity on the Notion dashboard (no-op when nothing changed or Notion is not set up). */
+  async syncDashboard(userId) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user?.notionApiKey || !user.notionWorkspaceId) return 'skipped';
+    await refreshDashboard(new NotionService(user.notionApiKey).notion, this.prisma, userId);
+    return 'live';
+  }
+
   /** Upsert the invoice row in the company's Notion (keyed by invoice id). Notion is a view, never the ledger. */
   async syncNotion(i) {
     const db = await this.prisma.notionDatabase.findFirst({ where: { userId: i.userId, databaseType: 'INCOMING_PAYMENTS', isActive: true } });
@@ -174,6 +193,7 @@ export class Outbox {
       x402PayLink: `${this.baseUrl}/x402pay/${i.id}`, paymentHash: i.settledTxHash || '',
     });
     if (r && r.success === false) throw new Error(r.error || 'notion upsert failed');
+    await this.syncDashboard(i.userId).catch((e) => console.error('notion dashboard refresh:', e.message)); // never fails the row sync
     return 'live';
   }
 }

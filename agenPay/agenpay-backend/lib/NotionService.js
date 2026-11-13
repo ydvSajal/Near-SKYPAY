@@ -6,6 +6,7 @@
 import { Client } from '@notionhq/client';
 import { PrismaClient } from '@prisma/client';
 import jwt from 'jsonwebtoken';
+import { buildTop, buildRecent } from './notionDashboard.js';
 
 export class NotionService {
   constructor(notionApiKey = null) {
@@ -148,26 +149,22 @@ export class NotionService {
     try {
       console.log(`🗃️ Setting up SkyPay workspace for user ${userId}`);
       
-      // Create main workspace page
+      // Page order is creation order: header + key figures, then the record pages, then recent activity.
       const workspacePage = await this.createWorkspacePage();
-      
-      // Create sub-pages for each database
-      const incomingPaymentsPage = await this.createSubPage(workspacePage.id, 'Incoming Payment Requests', '📥');
-      const outgoingPaymentsPage = await this.createSubPage(workspacePage.id, 'Outgoing Scheduled Payments', '📤');
-      const transactionsPage = await this.createSubPage(workspacePage.id, 'All Transactions', '🔄');
-      
-      // Create databases within their respective pages
+      const isTest = process.env.NEAR_USDC_IS_TEST_TOKEN === 'true';
+      const network = (process.env.NEAR_NETWORK || 'testnet');
+      await buildTop(this.notion, this.prisma, userId, workspacePage.id, { network, isTest });
+
+      const incomingPaymentsPage = await this.createSubPage(workspacePage.id, 'Invoices');
+      const outgoingPaymentsPage = await this.createSubPage(workspacePage.id, 'Supplier payments');
+      const transactionsPage = await this.createSubPage(workspacePage.id, 'Ledger');
+
       const incomingPaymentsDb = await this.createIncomingPaymentsDatabase(incomingPaymentsPage.id);
       const outgoingPaymentsDb = await this.createOutgoingPaymentsDatabase(outgoingPaymentsPage.id);
       const transactionsDb = await this.createTransactionsDatabase(transactionsPage.id);
-      
-      // Create dashboard content in the main workspace page
-      await this.createDashboard(workspacePage.id, {
-        incomingPaymentsPageId: incomingPaymentsPage.id,
-        outgoingPaymentsPageId: outgoingPaymentsPage.id,
-        transactionsPageId: transactionsPage.id,
-      });
-      
+
+      await buildRecent(this.notion, this.prisma, userId);
+
       // Store databases in our system (serialize properties to string for SQLite compatibility)
       const databases = [
         {
@@ -193,11 +190,13 @@ export class NotionService {
         },
       ];
       
+      // A rebuilt workspace replaces the old one: only the new databases stay active
+      await this.prisma.notionDatabase.updateMany({ where: { userId }, data: { isActive: false } });
       // Save to database (upsert to avoid duplicates)
       for (const db of databases) {
         await this.prisma.notionDatabase.upsert({
           where: { databaseId: db.databaseId },
-          update: db,
+          update: { ...db, isActive: true },
           create: db,
         });
       }
@@ -227,36 +226,33 @@ export class NotionService {
       // Try to create at workspace root first
       let workspacePage;
       try {
-        // Search for pages to find one we can use as parent
+        // Parent = a page the user shared with the integration. Never a database row, an archived page, or
+        // anything we created ourselves (a rebuild would otherwise nest inside the workspace it replaces).
         const pages = await this.notion.search({
-          filter: {
-            property: 'object',
-            value: 'page',
-          },
-          page_size: 10,
+          filter: { property: 'object', value: 'page' },
+          page_size: 50,
         });
-
-        if (pages.results.length === 0) {
-          throw new Error('No accessible pages found. Please ensure the integration has access to at least one page.');
+        const ours = /^(skypay|agenpay)( workspace)?$/i;
+        const titleOf = (p) => Object.values(p.properties || {}).find((x) => x.type === 'title')?.title?.[0]?.plain_text || '';
+        const candidates = pages.results.filter((p) => !p.archived && !p.in_trash && p.parent?.type !== 'database_id' && !ours.test(titleOf(p).trim()));
+        const parentPage = candidates.find((p) => p.parent?.type === 'workspace') || candidates.find((p) => p.parent?.type === 'page_id');
+        if (!parentPage) {
+          throw new Error('No accessible page found. In Notion, share at least one top-level page with the SkyPay integration.');
         }
-
-        // Find the first page that we can actually access
-        let parentPage = pages.results[0];
-        console.log(`📍 Creating SkyPay workspace inside: "${parentPage.properties?.title?.title?.[0]?.plain_text || 'Untitled'}" (${parentPage.id})`);
+        console.log(`📍 Creating SkyPay workspace inside: "${titleOf(parentPage) || 'Untitled'}" (${parentPage.id})`);
 
         workspacePage = await this.notion.pages.create({
           parent: {
             type: 'page_id',
             page_id: parentPage.id,
           },
-          icon: { type: 'emoji', emoji: '🚀' },
           properties: {
             title: {
               title: [
                 {
                   type: 'text',
                   text: {
-                    content: 'SkyPay Workspace',
+                    content: 'SkyPay',
                   },
                 },
               ],
@@ -280,12 +276,12 @@ export class NotionService {
   /**
    * Create sub-page
    */
-  async createSubPage(parentId, title, emoji) {
+  async createSubPage(parentId, title, emoji = null) {
     try {
       console.log(`📄 Creating sub-page: ${title} with emoji: ${emoji}`);
       const page = await this.notion.pages.create({
         parent: { type: 'page_id', page_id: parentId },
-        icon: { type: 'emoji', emoji: emoji },
+        ...(emoji ? { icon: { type: 'emoji', emoji } } : {}),
         properties: {
           title: {
             title: [
@@ -306,263 +302,6 @@ export class NotionService {
   }
 
   /**
-   * Create dashboard layout in workspace page (following tested pattern)
-   */
-  async createDashboard(workspacePageId, pageIds) {
-    try {
-      console.log('🎨 Creating dashboard layout...');
-      
-      // Create the main layout with two columns first
-      const columnListBlock = await this.notion.blocks.children.append({
-        block_id: workspacePageId,
-        children: [{
-          object: "block",
-          type: "column_list",
-          column_list: {
-            children: [
-              { object: "block", type: "column", column: { children: [] } },
-              { object: "block", type: "column", column: { children: [] } }
-            ]
-          }
-        }]
-      });
-
-      // Get the column IDs
-      const columnListBlockId = columnListBlock.results[0].id;
-      const columnBlocks = await this.notion.blocks.children.list({ block_id: columnListBlockId });
-      const [leftColumnId, rightColumnId] = columnBlocks.results.map((block) => block.id);
-
-      // Create sidebar content for left column
-      const sidebarContent = [
-        { 
-          object: "block", 
-          type: "heading_2", 
-          heading_2: { 
-            rich_text: [{ type: "text", text: { content: "📱 Navigation" } }], 
-            color: "default" 
-          } 
-        },
-        { object: "block", type: "divider", divider: {} },
-        { 
-          object: "block", 
-          type: "callout", 
-          callout: { 
-            rich_text: [{ type: "text", text: { content: "Quick Actions" } }], 
-            color: "blue_background", 
-            icon: { emoji: "⚡" } 
-          } 
-        },
-        { 
-          object: "block", 
-          type: "link_to_page", 
-          link_to_page: { 
-            type: "page_id", 
-            page_id: pageIds.incomingPaymentsPageId 
-          } 
-        },
-        { 
-          object: "block", 
-          type: "link_to_page", 
-          link_to_page: { 
-            type: "page_id", 
-            page_id: pageIds.outgoingPaymentsPageId 
-          } 
-        },
-        { 
-          object: "block", 
-          type: "link_to_page", 
-          link_to_page: { 
-            type: "page_id", 
-            page_id: pageIds.transactionsPageId 
-          } 
-        },
-        { object: "block", type: "divider", divider: {} },
-        { 
-          object: "block", 
-          type: "callout", 
-          callout: { 
-            rich_text: [{ type: "text", text: { content: "AI Assistant Ready" } }], 
-            color: "purple_background", 
-            icon: { emoji: "🤖" } 
-          } 
-        },
-        { 
-          object: "block", 
-          type: "paragraph", 
-          paragraph: { 
-            rich_text: [{ type: "text", text: { content: "💡 Ask me to send payments, create invoices, or analyze your data!" } }], 
-            color: "default" 
-          } 
-        }
-      ];
-
-      // Create main content for right column
-      const mainContent = [
-        { 
-          object: "block", 
-          type: "heading_1", 
-          heading_1: { 
-            rich_text: [{ type: "text", text: { content: "📊 SkyPay Dashboard" } }], 
-            color: "default" 
-          } 
-        },
-        { 
-          object: "block", 
-          type: "callout", 
-          callout: { 
-            rich_text: [{ type: "text", text: { content: "Payment Statistics" } }], 
-            color: "gray_background", 
-            icon: { emoji: "📈" }
-          }
-        }
-      ];
-
-      // Add content to columns
-      await this.notion.blocks.children.append({ 
-        block_id: leftColumnId, 
-        children: sidebarContent 
-      });
-      
-      await this.notion.blocks.children.append({ 
-        block_id: rightColumnId, 
-        children: mainContent 
-      });
-
-      // Create analytics section in right column
-      const analyticsColumnList = await this.notion.blocks.children.append({
-        block_id: rightColumnId,
-        children: [{
-          object: "block",
-          type: "column_list",
-          column_list: {
-            children: [
-              { object: "block", type: "column", column: { children: [] } },
-              { object: "block", type: "column", column: { children: [] } }
-            ]
-          }
-        }]
-      });
-
-      // Get analytics column IDs
-      const analyticsColumnListId = analyticsColumnList.results[0].id;
-      const analyticsColumns = await this.notion.blocks.children.list({ block_id: analyticsColumnListId });
-      const [analyticsLeftId, analyticsRightId] = analyticsColumns.results.map((block) => block.id);
-
-      // Add analytics boxes to left analytics column
-      await this.notion.blocks.children.append({ 
-        block_id: analyticsLeftId, 
-        children: [
-          { 
-            object: "block", 
-            type: "callout", 
-            callout: { 
-              rich_text: [{ type: "text", text: { content: "Total Sent\n0 USDC" } }], 
-              color: "red_background", 
-              icon: { emoji: "📤" } 
-            } 
-          }
-        ]
-      });
-
-      // Add analytics boxes to right analytics column
-      await this.notion.blocks.children.append({ 
-        block_id: analyticsRightId, 
-        children: [
-          { 
-            object: "block", 
-            type: "callout", 
-            callout: { 
-              rich_text: [{ type: "text", text: { content: "Total Received\n0 USDC" } }], 
-              color: "green_background", 
-              icon: { emoji: "📥" } 
-            } 
-          }
-        ]
-      });
-
-      // Add second row of analytics
-      const secondAnalyticsColumnList = await this.notion.blocks.children.append({
-        block_id: rightColumnId,
-        children: [{
-          object: "block",
-          type: "column_list",
-          column_list: {
-            children: [
-              { object: "block", type: "column", column: { children: [] } },
-              { object: "block", type: "column", column: { children: [] } }
-            ]
-          }
-        }]
-      });
-
-      const secondAnalyticsColumnListId = secondAnalyticsColumnList.results[0].id;
-      const secondAnalyticsColumns = await this.notion.blocks.children.list({ block_id: secondAnalyticsColumnListId });
-      const [secondLeftId, secondRightId] = secondAnalyticsColumns.results.map((block) => block.id);
-
-      // Add transaction and invoice counts
-      await this.notion.blocks.children.append({ 
-        block_id: secondLeftId, 
-        children: [
-          { 
-            object: "block", 
-            type: "callout", 
-            callout: { 
-              rich_text: [{ type: "text", text: { content: "Total Transactions\n0" } }], 
-              color: "blue_background", 
-              icon: { emoji: "🔄" } 
-            } 
-          }
-        ]
-      });
-
-      await this.notion.blocks.children.append({ 
-        block_id: secondRightId, 
-        children: [
-          { 
-            object: "block", 
-            type: "callout", 
-            callout: { 
-              rich_text: [{ type: "text", text: { content: "Active Invoices\n0" } }], 
-              color: "yellow_background", 
-              icon: { emoji: "🧾" } 
-            } 
-          }
-        ]
-      });
-
-      // Add recent activity section
-      await this.notion.blocks.children.append({ 
-        block_id: rightColumnId, 
-        children: [
-          { object: "block", type: "divider", divider: {} },
-          { 
-            object: "block", 
-            type: "callout", 
-            callout: { 
-              rich_text: [{ type: "text", text: { content: "Recent Activity" } }], 
-              color: "gray_background", 
-              icon: { emoji: "📅" } 
-            } 
-          },
-          { 
-            object: "block", 
-            type: "paragraph", 
-            paragraph: { 
-              rich_text: [{ type: "text", text: { content: "No recent activity yet. Start by creating your first payment or invoice!" } }], 
-              color: "default" 
-            } 
-          }
-        ]
-      });
-
-      console.log('✅ Dashboard layout created successfully');
-    } catch (error) {
-      console.error('❌ Error creating dashboard:', error);
-      throw error;
-    }
-  }
-
-  /**
    * Create Incoming Payment Requests Database
    */
   async createIncomingPaymentsDatabase(parentPageId) {
@@ -575,7 +314,7 @@ export class NotionService {
         {
           type: 'text',
           text: {
-            content: '📥 Incoming Payment Requests',
+            content: 'Invoices',
           },
         },
       ],
@@ -680,7 +419,7 @@ export class NotionService {
         {
           type: 'text',
           text: {
-            content: '📤 Outgoing Scheduled Payments',
+            content: 'Supplier payments',
           },
         },
       ],
@@ -764,7 +503,7 @@ export class NotionService {
         {
           type: 'text',
           text: {
-            content: '🔄 All Transactions',
+            content: 'Ledger',
           },
         },
       ],
