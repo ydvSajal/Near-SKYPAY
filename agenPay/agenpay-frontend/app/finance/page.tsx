@@ -8,6 +8,7 @@ import { ensureOwnerKey, getStoredOwnerKey, importOwnerKey, ownerAction, toBaseU
 import { AppHeader } from "@/components/app/app-header"
 import { StatusPill } from "@/components/app/status"
 import { BusinessForm } from "@/components/app/business-form"
+import { PayrollPicker, PayrollPreview } from "@/components/app/payroll-import"
 import {
   AlertCircle, ArrowRight, Building2, CheckCircle2, Download, ExternalLink, FileText, KeyRound, Loader2, Plus, Send, ShieldCheck, Trash2, Users, Vault, X,
 } from "lucide-react"
@@ -173,7 +174,8 @@ export default function FinancePage() {
   const [payTo, setPayTo] = useState("")
   const [payAmt, setPayAmt] = useState("")
   const [payMemo, setPayMemo] = useState("")
-  const [payMode, setPayMode] = useState<"single" | "batch">("single")
+  const [payMode, setPayMode] = useState<"single" | "batch" | "import">("single")
+  const [importFile, setImportFile] = useState<File | null>(null)
   const [batchLabel, setBatchLabel] = useState("")
   const [rows, setRows] = useState([{ payeeId: "", amount: "", memo: "" }])
   const [editId, setEditId] = useState<string | null>(null)
@@ -494,11 +496,14 @@ export default function FinancePage() {
             {/* Supplier payments */}
             {tab === "pay" && <Section id="pay" icon={Send} title="Payouts" sub="Send money from the vault to approved payees, using the agent's key. Over-limit, unapproved or revoked payments are refused on chain. Every payout is also logged in your Notion workspace under Supplier payments.">
               <div role="tablist" aria-label="Payout type" className="inline-flex w-fit rounded-lg border border-border bg-muted p-1">
-                {(["single", "batch"] as const).map((m) => (
+                {(["single", "batch", "import"] as const).map((m) => (
                   <button key={m} type="button" role="tab" aria-selected={payMode === m} onClick={() => setPayMode(m)}
-                    className={`press rounded-md px-4 py-1.5 text-sm font-semibold ${payMode === m ? "bg-card shadow-sm" : "text-muted-foreground"}`}>{m === "single" ? "Single payout" : "Batch payout"}</button>
+                    className={`press rounded-md px-4 py-1.5 text-sm font-semibold ${payMode === m ? "bg-card shadow-sm" : "text-muted-foreground"}`}>{{ single: "Single payout", batch: "Batch payout", import: "Import Excel" }[m]}</button>
                 ))}
               </div>
+              {payMode === "import" && (importFile
+                ? <PayrollPreview key={importFile.name + importFile.lastModified} file={importFile} onCancel={() => setImportFile(null)} onDone={() => { load().catch(() => {}) }} />
+                : <PayrollPicker onFile={setImportFile} />)}
               {payMode === "batch" && (() => {
                 const valid = rows.every((r) => r.payeeId && isAmount(r.amount))
                 const total = rows.reduce((a, r) => a + (isAmount(r.amount) ? Number(r.amount) : 0), 0)

@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import { parseUnits, sumLineItems, isBaseUnits } from './near/units.js';
 
 const EMAIL = /^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/;
+export const MAX_BATCH = 25;
 const NEAR_ACCOUNT = /^(?=.{2,64}$)(([a-z\d]+[-_])*[a-z\d]+\.)*([a-z\d]+[-_])*[a-z\d]+$/;
 
 export class SkyPay {
@@ -107,15 +108,15 @@ export class SkyPay {
 
   // --------------------------------------------------------------- payees
   /** Only the authenticated owner registers payout destinations. Prompts and emails cannot (A02, A18). */
-  async addPayee(userId, { name, email, nearAccount }) {
+  async addPayee(userId, { name, email, nearAccount, notes }) {
     const acct = String(nearAccount || '').trim().toLowerCase();
     if (!NEAR_ACCOUNT.test(acct)) throw httpErr(400, 'invalid NEAR account id');
     if (!(await this.near.accountExists(acct))) throw httpErr(400, `${acct} does not exist on NEAR ${this.near.network}`);
     await this.near.registerOnToken(acct); // sponsor-paid NEP-145 registration so it can receive USDC
     const payee = await this.prisma.payee.upsert({
       where: { userId_nearAccount: { userId, nearAccount: acct } },
-      create: { userId, name: String(name || acct).slice(0, 120), email: email || null, nearAccount: acct },
-      update: { name: String(name || acct).slice(0, 120), email: email || null },
+      create: { userId, name: String(name || acct).slice(0, 120), email: email || null, nearAccount: acct, notes: notes ? String(notes).slice(0, 500) : null },
+      update: { name: String(name || acct).slice(0, 120), email: email || null, ...(notes ? { notes: String(notes).slice(0, 500) } : {}) },
     });
     await this.outbox.enqueue(userId, 'notion_payee', `notion_payee:${payee.id}:${Date.now()}`, { payeeId: payee.id }).catch(() => {});
     return payee;
@@ -154,10 +155,10 @@ export class SkyPay {
   /**
    * Pay several approved payees in one go. Items run one after another (same agent key, so no nonce clashes);
    * a refused item does not stop the rest. Every item is its own idempotent vault payment.
-   * ponytail: synchronous, capped at 10 items; move to an outbox job if batches must be larger.
+   * ponytail: synchronous, capped at 25 items (~2-4 s each); move to an outbox job if payroll grows past that.
    */
-  async payBatch(userId, { label, items }) {
-    if (!Array.isArray(items) || items.length < 1 || items.length > 10) throw httpErr(400, 'a batch needs 1 to 10 payments');
+  async payBatch(userId, { label, items, source }) {
+    if (!Array.isArray(items) || items.length < 1 || items.length > MAX_BATCH) throw httpErr(400, `a batch needs 1 to ${MAX_BATCH} payments`);
     const u = await this.user(userId);
     if (!u.vaultAccountId || !u.agentKeyEnc) throw httpErr(409, 'vault not provisioned');
     const ids = [...new Set(items.map((i) => i.payeeId))];
@@ -174,7 +175,7 @@ export class SkyPay {
     if (total > BigInt(vault.available)) throw httpErr(422, 'batch total is more than the vault has available');
 
     const batch = await this.prisma.payoutBatch.create({
-      data: { userId, label: String(label || '').trim().slice(0, 80) || `Batch ${new Date().toISOString().slice(0, 10)}`, total: total.toString(), status: 'queued' },
+      data: { userId, label: String(label || '').trim().slice(0, 80) || `Batch ${new Date().toISOString().slice(0, 10)}`, total: total.toString(), status: 'queued', source: source ? String(source).slice(0, 120) : null },
     });
     const results = [];
     const finish = (n) => (n === parsed.length ? 'done' : n === 0 ? 'failed' : 'partial');
@@ -190,7 +191,7 @@ export class SkyPay {
     }
     const status = finish(results.filter((a) => a.status === 'settled').length);
     const done = await this.prisma.payoutBatch.update({ where: { id: batch.id }, data: { status } });
-    await this.outbox.enqueue(userId, 'notion_dashboard', `notion_dashboard:batch:${batch.id}`, {}).catch(() => {});
+    await this.outbox.enqueue(userId, 'notion_batch', `notion_batch:${batch.id}:${status}`, { batchId: batch.id }).catch(() => {});
     return { batch: done, payments: results };
   }
 

@@ -118,6 +118,7 @@ model PayoutBatch {
   label     String
   status    String   @default("queued")        // queued | done | partial | failed
   total     String                              // base units, sum of all items
+  source    String?                             // uploaded file name, when imported from a spreadsheet
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   payments  PaymentAttempt[]

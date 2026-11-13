@@ -7,8 +7,9 @@ import { authService } from "@/lib/auth"
 import { fromBaseUnits } from "@/lib/near"
 import { AppHeader } from "@/components/app/app-header"
 import { StatusPill } from "@/components/app/status"
+import { PayrollPreview } from "@/components/app/payroll-import"
 import {
-  AlertCircle, ArrowDownLeft, ArrowRight, ArrowUpRight, Bot, ExternalLink, FileText, Loader2, Play, RefreshCw, Send, Square,
+  AlertCircle, ArrowDownLeft, ArrowRight, ArrowUpRight, Bot, ExternalLink, FileText, Loader2, Paperclip, Play, RefreshCw, Send, Square,
 } from "lucide-react"
 
 interface NearStatus {
@@ -43,6 +44,7 @@ const PROMPTS = [
   { label: "Check an invoice", text: "Is INV-0001 paid?" },
   { label: "Pay a supplier", text: "Pay my approved supplier 5 USDC for hosting" },
   { label: "Summary", text: "Summarize my finances" },
+  { label: "Pay from a spreadsheet", text: "" },
 ]
 
 /** Minimal, safe markdown for agent replies: **bold**, [text](http(s) url), bare http(s) urls, "* " bullets. React nodes only. */
@@ -94,7 +96,14 @@ export default function Dashboard() {
   const [message, setMessage] = useState("")
   const [isProcessing, setIsProcessing] = useState(false)
   const [chatError, setChatError] = useState("")
-  const [chatHistory, setChatHistory] = useState<Array<{ role: "user" | "assistant"; content: string; timestamp: Date }>>([])
+  const [chatHistory, setChatHistory] = useState<Array<{ role: "user" | "assistant"; content: string; timestamp: Date; file?: File }>>([])
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [dropping, setDropping] = useState(false)
+  // A spreadsheet only opens a preview card; the owner checks it and confirms every step (see PayrollPreview).
+  const attach = (file: File) => setChatHistory((prev) => [...prev,
+    { role: "user", content: `📎 ${file.name}`, timestamp: new Date() },
+    { role: "assistant", content: `I read ${file.name}. Check every row below. New accounts need your approval on the vault before I can pay them.`, timestamp: new Date(), file },
+  ])
   const [chatThreadId, setChatThreadId] = useState<string | undefined>(undefined)
   const [agentBusy, setAgentBusy] = useState(false)
   const logRef = useRef<HTMLDivElement>(null)
@@ -430,13 +439,13 @@ export default function Dashboard() {
                 {chatHistory.length === 0 && (
                   <div className="py-4">
                     <p className="text-sm font-medium">Ask the agent in plain English.</p>
-                    <p className="mt-1 text-sm text-muted-foreground">It can invoice, check status, pay approved suppliers and summarize. It cannot pay addresses from chat.</p>
+                    <p className="mt-1 text-sm text-muted-foreground">It can invoice, check status, pay approved suppliers and summarize. For payroll, attach an Excel or CSV: you check and approve every row before anything is paid.</p>
                     <div className="mt-4 flex flex-wrap gap-2">
                       {PROMPTS.map((p) => (
                         <button
                           key={p.label}
                           type="button"
-                          onClick={() => { setMessage(p.text); inputRef.current?.focus() }}
+                          onClick={() => { if (!p.text) { fileRef.current?.click(); return } setMessage(p.text); inputRef.current?.focus() }}
                           className="press rounded-full border border-border px-3 py-1.5 text-sm hover:bg-muted"
                         >
                           {p.label}
@@ -447,8 +456,16 @@ export default function Dashboard() {
                 )}
                 {chatHistory.map((msg, i) => (
                   <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-                    <div className={`max-w-[88%] rounded-xl px-3.5 py-2.5 text-sm ${msg.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted text-foreground"}`}>
+                    <div className={`${msg.file ? "w-full" : "max-w-[88%]"} rounded-xl px-3.5 py-2.5 text-sm ${msg.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted text-foreground"}`}>
                       <p className="whitespace-pre-wrap break-words leading-relaxed">{renderChat(msg.content)}</p>
+                      {msg.file && (
+                        <div className="mt-3 rounded-lg bg-card p-3">
+                          <PayrollPreview file={msg.file} onDone={(r) => {
+                            setChatHistory((prev) => [...prev, { role: "assistant", content: `Payout run **${r.label}** ${r.status}: ${r.settled} of ${r.total} paid, ${r.amount} USDC in total. Each payment is in Notion under Supplier payments, and the run under Payouts.`, timestamp: new Date() }])
+                            load()
+                          }} />
+                        </div>
+                      )}
                       <p className={`mt-1 text-[11px] ${msg.role === "user" ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
                         {msg.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                       </p>
@@ -462,10 +479,27 @@ export default function Dashboard() {
                 )}
               </div>
 
-              <form onSubmit={handleSendMessage} className="border-t border-border p-3">
+              <form
+                onSubmit={handleSendMessage}
+                onDragOver={(e) => { e.preventDefault(); setDropping(true) }}
+                onDragLeave={() => setDropping(false)}
+                onDrop={(e) => { e.preventDefault(); setDropping(false); const f = e.dataTransfer.files[0]; if (f) attach(f) }}
+                className={`border-t border-border p-3 ${dropping ? "bg-primary/5" : ""}`}
+              >
+                <input ref={fileRef} type="file" accept=".xlsx,.xlsm,.csv,.tsv,.txt" className="sr-only" onChange={(e) => { const f = e.target.files?.[0]; if (f) attach(f); e.target.value = "" }} />
                 {chatError && <p role="alert" className="mb-2 px-1 text-sm text-destructive">{chatError} Your message is still in the box; send it again.</p>}
                 <label htmlFor="agent-input" className="sr-only">Message the payment agent</label>
                 <div className="flex items-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => fileRef.current?.click()}
+                    disabled={isProcessing}
+                    aria-label="Attach a payroll spreadsheet (Excel or CSV)"
+                    title="Attach a payroll spreadsheet (Excel or CSV)"
+                    className="press flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-border hover:bg-muted disabled:opacity-50"
+                  >
+                    <Paperclip className="h-4 w-4" />
+                  </button>
                   <textarea
                     id="agent-input"
                     ref={inputRef}
@@ -473,7 +507,7 @@ export default function Dashboard() {
                     value={message}
                     onChange={(e) => setMessage(e.target.value)}
                     onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSendMessage() } }}
-                    placeholder="Invoice a client, check an invoice..."
+                    placeholder="Invoice a client, or attach a payroll sheet..."
                     disabled={isProcessing}
                     className="max-h-32 min-h-11 flex-1 resize-none rounded-lg border border-input bg-card px-3 py-2.5 text-base outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/25 md:text-sm"
                   />

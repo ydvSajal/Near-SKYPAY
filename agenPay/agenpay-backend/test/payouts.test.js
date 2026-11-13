@@ -49,7 +49,7 @@ const item = (payeeId, amount = '10') => ({ payeeId, amount, memo: 'inv' });
 test('batch validation: empty, too large, foreign payee, bad amounts', async () => {
   const { sp } = setup();
   await assert.rejects(sp.payBatch('u1', { items: [] }), { status: 400 });
-  await assert.rejects(sp.payBatch('u1', { items: Array(11).fill(item('p1')) }), { status: 400 });
+  await assert.rejects(sp.payBatch('u1', { items: Array(26).fill(item('p1')) }), { status: 400 });
   await assert.rejects(sp.payBatch('u1', { items: [item('px')] }), { status: 404 });
   await assert.rejects(sp.payBatch('u1', { items: [item('p1', 'abc')] }), { status: 400 });
   await assert.rejects(sp.payBatch('u1', { items: [item('p1', '0')] }), { status: 400 });

@@ -20,6 +20,7 @@ export class Outbox {
       ? nodemailer.createTransport({ service: env.EMAIL_SERVICE || 'gmail', auth: { user: env.EMAIL_USER, pass: env.EMAIL_PASS.trim() } })
       : null;
     this.from = env.EMAIL_FROM || 'SkyPay <noreply@skypay.local>';
+    this.payoutsReady = new Set(); // users whose Notion Payouts page + tables were checked this run
     this.payoutCols = new Set(); // Notion payout databases already given the Payee/Batch columns this run
   }
 
@@ -78,7 +79,12 @@ export class Outbox {
     if (!user.notionWorkspaceId || force) {
       const old = user.notionWorkspaceId;
       // force = redesign/rebuild: remove only the blocks SkyPay added (to Notion trash, recoverable)
-      if (force) await clearDashboard(svc.notion, this.prisma, userId);
+      if (force) {
+        await clearDashboard(svc.notion, this.prisma, userId);
+        const pp = await this.prisma.notionDatabase.findFirst({ where: { userId, databaseType: 'PAYOUTS_PAGE', isActive: true } });
+        if (pp) await svc.notion.pages.update({ page_id: pp.databaseId, archived: true }).catch(() => {}); // Notion trash, recoverable
+      }
+      this.payoutsReady.delete(userId);
       const { workspacePageId } = await svc.completeIntegration(userId, user.notionApiKey);
       // legacy layout had its own "SkyPay" child page: trash it. Never the shared page itself (old === new).
       if (force && old && old !== workspacePageId) await svc.notion.pages.update({ page_id: old, archived: true }).catch((e) => console.error('archive old workspace:', e.message));
@@ -102,6 +108,7 @@ export class Outbox {
     if (job.kind === 'notion_dashboard') return this.syncDashboard(job.userId);
     if (job.kind === 'notion_payout') return this.syncPayout(job.payload.attemptId);
     if (job.kind === 'notion_payee') return this.syncPayee(job.payload.payeeId);
+    if (job.kind === 'notion_batch') return this.syncRun(job.payload.batchId);
     if (job.kind === 'notion_payee_remove') return this.removePayeeRow(job.userId, job.payload.nearAccount);
     const invoice = await this.prisma.invoice.findUnique({ where: { id: job.payload.invoiceId }, include: { user: true } });
     if (!invoice) throw new Error('invoice missing');
@@ -189,7 +196,14 @@ export class Outbox {
   async syncDashboard(userId) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user?.notionApiKey || !user.notionWorkspaceId) return 'skipped';
-    await refreshDashboard(new NotionService(user.notionApiKey).notion, this.prisma, userId);
+    const svc = new NotionService(user.notionApiKey);
+    // workspaces built before payroll get the Payouts sub-page (and its two tables) on their next sync
+    if (!this.payoutsReady.has(userId)) {
+      await svc.ensurePayeesDatabase(userId, user.notionWorkspaceId);
+      await svc.ensureRunsDatabase(userId, user.notionWorkspaceId);
+      this.payoutsReady.add(userId);
+    }
+    await refreshDashboard(svc.notion, this.prisma, userId);
     return 'live';
   }
 
@@ -223,7 +237,32 @@ export class Outbox {
       console.log(`🗃️ [fixture] Notion not connected; would upsert payee ${p.name}`);
       return 'fixture';
     }
-    await new NotionService(p.user.notionApiKey).upsertPayeeRecord(p.userId, p.user.notionWorkspaceId, p);
+    const settled = await this.prisma.paymentAttempt.findMany({
+      where: { userId: p.userId, direction: 'OUT', recipient: p.nearAccount, status: 'settled' }, orderBy: { updatedAt: 'desc' }, select: { amount: true, updatedAt: true },
+    });
+    const total = settled.reduce((a, x) => a + BigInt(x.amount), 0n);
+    await new NotionService(p.user.notionApiKey).upsertPayeeRecord(p.userId, p.user.notionWorkspaceId, {
+      ...p, totalPaid: Number(formatUnits(total.toString())), payouts: settled.length, lastPaid: settled[0]?.updatedAt.toISOString() || null,
+    });
+    await this.syncDashboard(p.userId).catch((e) => console.error('notion dashboard refresh:', e.message)); // also creates Payout runs table
+    return 'live';
+  }
+
+  /** One row per payout run in Notion > Payouts > Payout runs; also refreshes each paid payee's totals. */
+  async syncRun(batchId) {
+    const b = await this.prisma.payoutBatch.findUnique({ where: { id: batchId }, include: { user: true, payments: true } });
+    if (!b) return 'skipped';
+    if (!b.user.notionApiKey || !b.user.notionWorkspaceId) {
+      console.log(`🗃️ [fixture] Notion not connected; would upsert payout run "${b.label}" (${b.status})`);
+      return 'fixture';
+    }
+    await new NotionService(b.user.notionApiKey).upsertRunRecord(b.userId, b.user.notionWorkspaceId, {
+      id: b.id, label: b.label, date: b.createdAt.toISOString(), payments: b.payments.length,
+      settled: b.payments.filter((p) => p.status === 'settled').length, total: Number(formatUnits(b.total)), status: b.status, source: b.source || '',
+    });
+    const payees = await this.prisma.payee.findMany({ where: { userId: b.userId, nearAccount: { in: [...new Set(b.payments.map((p) => p.recipient))] } }, select: { id: true } });
+    for (const { id } of payees) await this.enqueue(b.userId, 'notion_payee', `notion_payee:${id}:run:${b.id}`, { payeeId: id });
+    await this.syncDashboard(b.userId).catch((e) => console.error('notion dashboard refresh:', e.message));
     return 'live';
   }
 

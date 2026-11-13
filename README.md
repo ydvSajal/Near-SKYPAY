@@ -40,7 +40,8 @@ the header shows which steps are done and lets you finish or edit them later.
 | Pay a supplier | Choose an approved payee and an amount, or ask the agent | Paid from a separate **operating vault** that you fund. Each payment has a per-payment cap and a daily cap; payees must be approved by you. |
 | Batch payout | Finance → Payouts → Batch: up to 10 payees and amounts, one click | Paid one after another from the vault; a refused payment does not stop the rest. Each shows settled or refused, with its transaction. |
 | Manage payees | Finance → Payees: edit name, email, notes; remove | Removing only affects SkyPay; the on-chain approval stays until you revoke it in the vault. |
-| Payouts in Notion | Automatic | Every payout lands in the Notion **Supplier payments** table (with payee and batch), and payees in a **Payees** table. |
+| Payroll from Excel | Finance → Payouts → Import Excel, or attach the file in the agent chat | Up to 25 rows (Name, NEAR account, Email, Amount, Memo), read in the browser. You check a preview, approve new accounts with your own key, then pay the run. Bad rows and limit problems block payment. |
+| Payouts in Notion | Automatic | A **Payouts** sub-page holds **Employees & payees** (with total paid, last paid) and **Payout runs**. Each payment also lands in **Supplier payments**. |
 | Stop the agent | "Revoke agent" | Takes effect on-chain; any further agent payment is refused by the contract. |
 | Close the month | Download `invoices.csv` and `payments.csv` | UTC timestamps, fixed 6-decimal amounts, transaction link per row, spreadsheet-formula injection blocked. |
 | Pay network fees | Nothing | SkyPay sponsors NEAR gas. The company never has to buy NEAR. |
@@ -113,7 +114,7 @@ npm ci
 cp .env.example .env            # set DATABASE_URL=postgresql://postgres:skypay@localhost:5434/skypay and JWT_SECRET
 npx prisma db push
 npm run near:bootstrap          # creates the testnet sponsor + test token; writes secrets to .env.near (gitignored)
-npm test                        # expect: 22 pass, 0 fail
+npm test                        # expect: 24 pass, 0 fail (frontend: node --test lib/payroll-core.test.ts, 5 pass)
 node server.js                  # expect: "NEAR testnet: token ..., relayer ..."
 ```
 

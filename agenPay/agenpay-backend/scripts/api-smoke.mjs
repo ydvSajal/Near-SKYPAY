@@ -91,9 +91,9 @@ say(`18. 4.5 more (4+4.5 > 8 daily cap): ${p3.body.payment?.status} -> ${String(
 
 const edited = (await call('PATCH', `/api/payees/${payee.id}`, { name: 'Pixel Supplies Ltd', notes: 'net 30' })).body.payee;
 say(`18a. payee edited: ${edited.name} / ${edited.notes}`);
-const bt = await call('POST', '/api/vault/payout-batches', { label: 'Smoke batch', items: [
+const bt = await call('POST', '/api/vault/payout-batches', { label: 'Smoke batch', source: 'payroll-nov.xlsx', items: [
   { payeeId: payee.id, amount: '1', memo: 'b1' }, { payeeId: payee.id, amount: '2', memo: 'b2' }, { payeeId: payee.id, amount: '2', memo: 'b3 (over daily cap)' }] }, true);
-say(`18b. batch of 3 (1+2+2, daily cap leaves room for 4): batch=${bt.body.batch?.status} items=${bt.body.payments?.map((p) => p.status).join(',')}`);
+say(`18b. batch of 3 (1+2+2, daily cap leaves room for 4): batch=${bt.body.batch?.status} source=${bt.body.batch?.source} items=${bt.body.payments?.map((p) => p.status).join(',')}`);
 const bl = (await call('GET', '/api/vault/payout-batches')).body.batches;
 say(`18c. batch history lists ${bl.length} batch with ${bl[0]?.payments.length} payments`);
 const overBatch = await call('POST', '/api/vault/payout-batches', { items: [{ payeeId: payee.id, amount: '999' }] }, true);

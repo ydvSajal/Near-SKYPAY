@@ -934,21 +934,67 @@ export class NotionService {
     }
   }
 
-  /** Payees database: created lazily so workspaces built before this feature get it without a rebuild. */
-  async ensurePayeesDatabase(userId, parentPageId) {
-    const existing = await this.prisma.notionDatabase.findFirst({ where: { userId, databaseType: 'PAYEES', isActive: true } });
+  /**
+   * "Payouts" sub-page of the SkyPay workspace page, holding the Employees & payees and Payout runs tables.
+   * Created lazily so workspaces built before this feature get it without a rebuild. Ids live in NotionDatabase rows.
+   */
+  async ensurePayoutsPage(userId, workspacePageId) {
+    const row = await this.prisma.notionDatabase.findFirst({ where: { userId, databaseType: 'PAYOUTS_PAGE', isActive: true } });
+    if (row) return row.databaseId;
+    const page = await this.notion.pages.create({
+      parent: { type: 'page_id', page_id: workspacePageId },
+      icon: { type: 'emoji', emoji: '💸' },
+      properties: { title: { title: [{ text: { content: 'Payouts' } }] } },
+      children: [{
+        object: 'block', type: 'paragraph',
+        paragraph: { rich_text: [{ type: 'text', text: { content: 'Employees and suppliers you pay, and every payout run. Kept in sync by SkyPay; the vault on NEAR is the record of truth.' }, annotations: { color: 'gray' } }] },
+      }],
+    });
+    await this.prisma.notionDatabase.create({ data: { userId, databaseId: page.id, databaseName: 'SkyPay Payouts page', databaseType: 'PAYOUTS_PAGE' } });
+    return page.id;
+  }
+
+  async ensureDb(userId, workspacePageId, type, title, properties) {
+    const existing = await this.prisma.notionDatabase.findFirst({ where: { userId, databaseType: type, isActive: true } });
     if (existing) return existing.databaseId;
-    const rt = () => ({ rich_text: {} });
+    const parent = await this.ensurePayoutsPage(userId, workspacePageId);
     const db = await this.notion.databases.create({
-      parent: { type: 'page_id', page_id: parentPageId },
-      is_inline: false,
-      title: [{ type: 'text', text: { content: 'Payees' } }],
-      properties: { Name: { title: {} }, 'NEAR Account': rt(), Email: { email: {} }, Notes: rt(), 'On-chain allow-list': rt() },
+      parent: { type: 'page_id', page_id: parent }, is_inline: true, title: [{ type: 'text', text: { content: title } }], properties,
     });
-    await this.prisma.notionDatabase.create({
-      data: { userId, databaseId: db.id, databaseName: 'SkyPay Payees', databaseType: 'PAYEES', properties: JSON.stringify(db.properties) },
-    });
+    await this.prisma.notionDatabase.create({ data: { userId, databaseId: db.id, databaseName: `SkyPay ${title}`, databaseType: type, properties: JSON.stringify(db.properties) } });
     return db.id;
+  }
+
+  ensurePayeesDatabase(userId, workspacePageId) {
+    const rt = { rich_text: {} };
+    return this.ensureDb(userId, workspacePageId, 'PAYEES', 'Employees & payees', {
+      Name: { title: {} }, 'NEAR Account': rt, Email: { email: {} }, Notes: rt,
+      'Total paid': { number: { format: 'number' } }, Payouts: { number: { format: 'number' } }, 'Last paid': { date: {} },
+    });
+  }
+
+  ensureRunsDatabase(userId, workspacePageId) {
+    const rt = { rich_text: {} };
+    return this.ensureDb(userId, workspacePageId, 'PAYOUT_RUNS', 'Payout runs', {
+      Run: { title: {} }, Date: { date: {} }, Payments: { number: { format: 'number' } }, Settled: { number: { format: 'number' } },
+      'Total (USDC)': { number: { format: 'number' } },
+      Status: { select: { options: [{ name: 'done', color: 'green' }, { name: 'partial', color: 'yellow' }, { name: 'failed', color: 'red' }, { name: 'queued', color: 'gray' }] } },
+      Source: rt, 'Run ID': rt,
+    });
+  }
+
+  /** One row per payout run (batch), keyed by Run ID. */
+  async upsertRunRecord(userId, workspacePageId, r) {
+    const databaseId = await this.ensureRunsDatabase(userId, workspacePageId);
+    const text = (c) => ({ rich_text: [{ text: { content: String(c || '').slice(0, 1900) } }] });
+    const properties = {
+      Run: { title: [{ text: { content: r.label } }] }, Date: { date: { start: r.date } }, Payments: { number: r.payments },
+      Settled: { number: r.settled }, 'Total (USDC)': { number: r.total }, Status: { select: { name: r.status } },
+      Source: text(r.source), 'Run ID': text(r.id),
+    };
+    const found = await this.notion.databases.query({ database_id: databaseId, filter: { property: 'Run ID', rich_text: { equals: r.id } } });
+    if (found.results[0]) return this.notion.pages.update({ page_id: found.results[0].id, properties });
+    return this.notion.pages.create({ parent: { database_id: databaseId }, properties });
   }
 
   /** Add the Payee / Batch columns to a Supplier payments database made before batch payouts existed. Idempotent. */
@@ -957,12 +1003,14 @@ export class NotionService {
       .catch((e) => console.error('payout columns:', e.message));
   }
 
+  /** p: payee row plus { totalPaid (number), payouts (count), lastPaid (ISO|null) } */
   async upsertPayeeRecord(userId, parentPageId, p) {
     const databaseId = await this.ensurePayeesDatabase(userId, parentPageId);
     const text = (c) => ({ rich_text: [{ text: { content: String(c || '').slice(0, 1900) } }] });
     const properties = {
       Name: { title: [{ text: { content: p.name } }] }, 'NEAR Account': text(p.nearAccount),
       Email: { email: p.email || null }, Notes: text(p.notes),
+      'Total paid': { number: p.totalPaid ?? 0 }, Payouts: { number: p.payouts ?? 0 }, 'Last paid': { date: p.lastPaid ? { start: p.lastPaid } : null },
     };
     const found = await this.notion.databases.query({ database_id: databaseId, filter: { property: 'NEAR Account', rich_text: { equals: p.nearAccount } } });
     if (found.results[0]) return this.notion.pages.update({ page_id: found.results[0].id, properties });
