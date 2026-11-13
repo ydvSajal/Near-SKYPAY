@@ -1,118 +1,106 @@
 "use client"
 
-import { Suspense, useState, useEffect } from "react"
+import { Suspense, useCallback, useEffect, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
-import Link from "next/link"
 import { useAuth } from "@/lib/auth-context"
 import { authService } from "@/lib/auth"
-import { Navbar } from "@/components/landing/navbar"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { ensureOwnerKey, downloadOwnerKeyBackup } from "@/lib/near"
+import { OnboardingShell, StepPanel, type StepId } from "@/components/onboarding/shell"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Alert, AlertDescription } from "@/components/ui/alert"
-import { ConnectWallet } from "@/components/wallet/connect-wallet"
 import {
-  CreditCard,
-  Database,
-  Wallet,
-  AlertCircle,
-  Loader2,
-  Eye,
-  EyeOff,
-  ArrowLeft,
+  AlertCircle, ArrowRight, Check, CheckCircle2, Database, Download, Eye, EyeOff, KeyRound, Loader2, ShieldCheck, Vault,
 } from "lucide-react"
 
-/* Shared authentication surfaces. */
-const pageShell =
-  "relative min-h-screen overflow-hidden bg-slate-50 px-4 py-24 sm:px-6 lg:px-12 flex items-center justify-center text-slate-900"
+type Step = "auth" | "notion" | "near"
+const STEP_ID: Record<Step, StepId> = { auth: "account", notion: "notion", near: "near" }
+const MIN_PASSWORD = 8 // matches the backend rule in /api/auth/register
 
-const glassCard =
-  "w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm "
+// Only same-site paths are allowed as post-login destinations.
+const safeRedirect = (v: string | null) => (v && v.startsWith("/") && !v.startsWith("//") ? v : "/dashboard")
 
-const primaryCta =
-  "h-11 w-full rounded-xl bg-primary   text-white shadow-lg  transition  "
+const primary = "press inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+const secondary = "press inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-border bg-card px-5 text-sm font-medium text-foreground hover:bg-muted disabled:opacity-60"
 
-
-function AccentStrip() {
+function ErrorBox({ children }: { children: React.ReactNode }) {
   return (
-    <div
-      aria-hidden
-      className="h-1 w-full bg-primary  via-white "
-    />
-  )
-}
-
-function BackHome() {
-  return (
-    <div className="mt-5 text-center">
-      <Link
-        href="/#hero"
-        className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-medium text-slate-600 shadow-sm  transition hover:bg-white hover:text-slate-900"
-      >
-        <ArrowLeft className="h-3.5 w-3.5" />
-        Back to home
-      </Link>
+    <div role="alert" className="flex gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+      <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+      <div>{children}</div>
     </div>
   )
 }
 
+function Field({
+  id, label, error, hint, children,
+}: { id: string; label: string; error?: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <div className="grid gap-2">
+      <label htmlFor={id} className="text-sm font-medium">{label}</label>
+      {children}
+      {error ? (
+        <p id={`${id}-error`} className="text-sm text-destructive">{error}</p>
+      ) : hint ? (
+        <p id={`${id}-hint`} className="text-sm text-muted-foreground">{hint}</p>
+      ) : null}
+    </div>
+  )
+}
+
+const inputCls = (invalid: boolean) =>
+  `h-11 w-full rounded-lg border bg-card px-3 text-base outline-none transition-[border-color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/25 md:text-sm ${invalid ? "border-destructive" : "border-input"}`
+
 function AuthPageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { login, register, isAuthenticated, user } = useAuth()
+  const { login, register, isAuthenticated, user, refreshUser } = useAuth()
+  const redirectTo = safeRedirect(searchParams.get("redirect"))
 
   const [isLoading, setIsLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState("")
-  const [step, setStep] = useState<"auth" | "notion" | "wallet">("auth")
-
-  const [formData, setFormData] = useState({
-    email: "",
-    password: "",
-    name: "",
-  })
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
+  const [step, setStep] = useState<Step>("auth")
+  const [formData, setFormData] = useState({ email: "", password: "", name: "" })
 
   useEffect(() => {
     const urlStep = searchParams.get("step")
-    if (urlStep && ["auth", "notion", "wallet"].includes(urlStep)) {
-      setStep(urlStep as "auth" | "notion" | "wallet")
-    }
+    if (urlStep === "auth" || urlStep === "notion" || urlStep === "near") setStep(urlStep)
   }, [searchParams])
 
   useEffect(() => {
-    if (isAuthenticated && user) {
-      const hasNotionIntegration = (user as { hasNotionIntegration?: boolean }).hasNotionIntegration
-      const hasWallet = (user as { hasWallet?: boolean }).hasWallet
-
-      if (hasNotionIntegration && hasWallet) {
-        router.push("/dashboard")
-      } else if (!hasNotionIntegration && step === "auth") {
-        setStep("notion")
-      } else if (hasNotionIntegration && !hasWallet && step === "auth") {
-        setStep("wallet")
-      }
-    }
-  }, [isAuthenticated, user, router, step])
+    if (!isAuthenticated || !user) return
+    const { hasNotionIntegration, hasNearAccount } = user
+    if (hasNearAccount && step === "auth") router.push(redirectTo)
+    else if (!hasNotionIntegration && step === "auth") setStep("notion")
+    else if (hasNotionIntegration && !hasNearAccount && step === "auth") setStep("near")
+  }, [isAuthenticated, user, router, step, redirectTo])
 
   const updateFormData = (field: string, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }))
+    setFieldErrors((prev) => ({ ...prev, [field]: "" }))
     setError("")
+  }
+
+  const validate = (mode: "login" | "register") => {
+    const e: Record<string, string> = {}
+    if (mode === "register" && !formData.name.trim()) e.name = "Enter your name."
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email.trim())) e.email = "Enter a valid email address."
+    if (!formData.password) e.password = "Enter your password."
+    else if (mode === "register" && formData.password.length < MIN_PASSWORD) e.password = `Use at least ${MIN_PASSWORD} characters.`
+    setFieldErrors(e)
+    return Object.keys(e).length === 0
   }
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!validate("login")) return
     setIsLoading(true)
     setError("")
-
     try {
-      const result = await login(formData.email, formData.password)
-      if (!result.success) {
-        setError(result.error || "Login failed")
-      }
+      const result = await login(formData.email.trim(), formData.password)
+      if (!result.success) setError(result.error || "Sign in failed. Check your email and password.")
     } catch {
-      setError("Login failed. Please try again.")
+      setError("We could not reach SKYPay. Check your connection and try again.")
     } finally {
       setIsLoading(false)
     }
@@ -120,24 +108,15 @@ function AuthPageContent() {
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!validate("register")) return
     setIsLoading(true)
     setError("")
-
-    if (formData.password.length < 6) {
-      setError("Password must be at least 6 characters")
-      setIsLoading(false)
-      return
-    }
-
     try {
-      const result = await register(formData.email, formData.password, formData.name)
-      if (result.success) {
-        setStep("notion")
-      } else {
-        setError(result.error || "Registration failed")
-      }
+      const result = await register(formData.email.trim(), formData.password, formData.name.trim())
+      if (result.success) setStep("notion")
+      else setError(result.error || "Registration failed. Try again.")
     } catch {
-      setError("Registration failed. Please try again.")
+      setError("We could not reach SKYPay. Check your connection and try again.")
     } finally {
       setIsLoading(false)
     }
@@ -146,431 +125,235 @@ function AuthPageContent() {
   const handleNotionConnect = async () => {
     setIsLoading(true)
     setError("")
-
     try {
       const response = await authService.getNotionAuthUrl()
       if (response.success && response.authUrl) {
         window.location.href = response.authUrl
       } else {
-        setError(response.error || "Failed to get Notion auth URL")
+        setError(response.error || "Could not start the Notion connection. Try again.")
         setIsLoading(false)
       }
     } catch {
-      setError("Failed to initiate Notion authentication")
+      setError("Could not start the Notion connection. Try again.")
       setIsLoading(false)
     }
   }
 
-  const handleWalletCreation = async () => {
-    setIsLoading(true)
-    setError("")
+  const passwordToggle = (
+    <button
+      type="button"
+      onClick={() => setShowPassword((v) => !v)}
+      aria-label={showPassword ? "Hide password" : "Show password"}
+      className="absolute inset-y-0 right-0 flex w-11 items-center justify-center rounded-r-lg text-muted-foreground hover:text-foreground"
+    >
+      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+    </button>
+  )
 
-    try {
-      const response = await authService.createWallet()
-      if (response.success) {
-        await authService.requestFaucet()
-        router.push("/dashboard")
-      } else {
-        setError(response.error || "Wallet creation failed")
-      }
-    } catch {
-      setError("Failed to create wallet")
-    } finally {
-      setIsLoading(false)
-    }
-  }
+  const describe = (id: string) => (fieldErrors[id] ? `${id}-error` : undefined)
 
   if (step === "auth") {
     return (
-      <div className={pageShell}>
-        <Navbar />
-        <div className="relative mx-auto w-full max-w-6xl">
-          <div className="grid w-full items-stretch gap-6 lg:grid-cols-2">
-            <div className="relative hidden overflow-hidden rounded-xl border border-slate-200 bg-white p-10 shadow-sm  md:block">
-              <div className="absolute -right-24 -top-24 h-56 w-56 rounded-full bg-secondary blur-3xl" />
-              <div className="absolute -bottom-20 -left-16 h-56 w-56 rounded-full bg-emerald-200/70 blur-3xl" />
-              <div className="relative z-10">
-                <p className="mb-4 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-primary">
-                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-secondary" />
-                  SKYPay Control Center
-                </p>
-                <h1 className="text-4xl font-semibold leading-tight text-slate-900">
-                  Payments, ops, and automation in one place.
-                </h1>
-                <p className="mt-4 max-w-md text-sm leading-7 text-slate-600">
-                  Sign in to run your AI payment operations. Connect Notion, create a wallet, and
-                  manage invoicing flows from one modern workspace.
-                </p>
-                <div className="mt-8 space-y-4">
-                  {[
-                    { label: "Secure email authentication", dot: "bg-secondary" },
-                    { label: "Notion-first workflow setup", dot: "bg-blue-700" },
-                    { label: "Instant wallet provisioning", dot: "bg-green-600" },
-                  ].map((item) => (
-                    <div
-                      key={item.label}
-                      className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm "
-                    >
-                      <span className={`inline-block h-2.5 w-2.5 rounded-full ${item.dot}`} />
-                      {item.label}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
+      <OnboardingShell step={STEP_ID.auth}>
+        <StepPanel title="Welcome to SKYPay" description="Sign in, or create a workspace for your business.">
+          <Tabs defaultValue="login" onValueChange={() => { setError(""); setFieldErrors({}) }}>
+            <TabsList className="grid h-11 w-full grid-cols-2 rounded-lg bg-muted p-1">
+              <TabsTrigger value="login" className="rounded-md text-sm data-[state=active]:bg-card data-[state=active]:shadow-none">Sign in</TabsTrigger>
+              <TabsTrigger value="register" className="rounded-md text-sm data-[state=active]:bg-card data-[state=active]:shadow-none">Create account</TabsTrigger>
+            </TabsList>
 
-            <Card className={glassCard}>
-              <AccentStrip />
-              <CardHeader className="space-y-4 border-b border-slate-200 bg-white text-center sm:text-left">
-                <Link
-                  href="/#hero"
-                  aria-label="Back to SKYPay home"
-                  className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-primary   shadow-lg  transition hover:scale-105 sm:mx-0"
-                >
-                  <CreditCard className="h-8 w-8 text-white" />
-                </Link>
-                <div>
-                  <CardTitle className="text-3xl font-semibold tracking-tight text-slate-900">
-                    Welcome back
-                  </CardTitle>
-                  <CardDescription className="mt-1 text-slate-600">
-                    Continue to your SKYPay agent workspace
-                  </CardDescription>
-                </div>
-              </CardHeader>
+            <TabsContent value="login" className="mt-6">
+              <form onSubmit={handleLogin} noValidate className="grid gap-5">
+                <Field id="email" label="Email" error={fieldErrors.email}>
+                  <input id="email" type="email" autoComplete="email" value={formData.email} onChange={(e) => updateFormData("email", e.target.value)}
+                    aria-invalid={!!fieldErrors.email} aria-describedby={describe("email")} className={inputCls(!!fieldErrors.email)} />
+                </Field>
+                <Field id="password" label="Password" error={fieldErrors.password}>
+                  <div className="relative">
+                    <input id="password" type={showPassword ? "text" : "password"} autoComplete="current-password" value={formData.password}
+                      onChange={(e) => updateFormData("password", e.target.value)} aria-invalid={!!fieldErrors.password}
+                      aria-describedby={describe("password")} className={`${inputCls(!!fieldErrors.password)} pr-11`} />
+                    {passwordToggle}
+                  </div>
+                </Field>
+                {error && <ErrorBox>{error}</ErrorBox>}
+                <button type="submit" className={primary} disabled={isLoading}>
+                  {isLoading ? <><Loader2 className="h-4 w-4 animate-spin" /> Signing in</> : "Sign in"}
+                </button>
+              </form>
+            </TabsContent>
 
-              <CardContent className="p-6 sm:p-8">
-                <Tabs defaultValue="login" className="space-y-5">
-                  <TabsList className="grid h-11 w-full grid-cols-2 rounded-xl bg-white p-1 ">
-                    <TabsTrigger
-                      value="login"
-                      className="rounded-lg text-sm font-semibold data-[state=active]:bg-white data-[state=active]:text-primary"
-                    >
-                      Login
-                    </TabsTrigger>
-                    <TabsTrigger
-                      value="register"
-                      className="rounded-lg text-sm font-semibold data-[state=active]:bg-white data-[state=active]:text-primary"
-                    >
-                      Register
-                    </TabsTrigger>
-                  </TabsList>
-
-                  <TabsContent value="login">
-                    <form onSubmit={handleLogin} className="space-y-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="email">Email</Label>
-                        <Input
-                          id="email"
-                          type="email"
-                          placeholder="your@email.com"
-                          value={formData.email}
-                          onChange={(e) => updateFormData("email", e.target.value)}
-                          required
-                          className="h-11 rounded-xl border-slate-200 bg-white  focus-visible:ring-ring"
-                        />
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label htmlFor="password">Password</Label>
-                        <div className="relative">
-                          <Input
-                            id="password"
-                            type={showPassword ? "text" : "password"}
-                            placeholder="••••••••"
-                            value={formData.password}
-                            onChange={(e) => updateFormData("password", e.target.value)}
-                            required
-                            className="h-11 rounded-xl border-slate-200 bg-white pr-11  focus-visible:ring-ring"
-                          />
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
-                            onClick={() => setShowPassword(!showPassword)}
-                          >
-                            {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                          </Button>
-                        </div>
-                      </div>
-
-                      {error && (
-                        <Alert variant="destructive">
-                          <AlertCircle className="h-4 w-4" />
-                          <AlertDescription>{error}</AlertDescription>
-                        </Alert>
-                      )}
-
-                      <Button type="submit" className={primaryCta} disabled={isLoading}>
-                        {isLoading ? (
-                          <>
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            Signing in...
-                          </>
-                        ) : (
-                          "Sign In"
-                        )}
-                      </Button>
-                    </form>
-                  </TabsContent>
-
-                  <TabsContent value="register">
-                    <form onSubmit={handleRegister} className="space-y-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="name">Full Name</Label>
-                        <Input
-                          id="name"
-                          type="text"
-                          placeholder="John Doe"
-                          value={formData.name}
-                          onChange={(e) => updateFormData("name", e.target.value)}
-                          required
-                          className="h-11 rounded-xl border-slate-200 bg-white  focus-visible:ring-ring"
-                        />
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label htmlFor="email">Email</Label>
-                        <Input
-                          id="email"
-                          type="email"
-                          placeholder="your@email.com"
-                          value={formData.email}
-                          onChange={(e) => updateFormData("email", e.target.value)}
-                          required
-                          className="h-11 rounded-xl border-slate-200 bg-white  focus-visible:ring-ring"
-                        />
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label htmlFor="password">Password</Label>
-                        <div className="relative">
-                          <Input
-                            id="password"
-                            type={showPassword ? "text" : "password"}
-                            placeholder="••••••••"
-                            value={formData.password}
-                            onChange={(e) => updateFormData("password", e.target.value)}
-                            required
-                            className="h-11 rounded-xl border-slate-200 bg-white pr-11  focus-visible:ring-ring"
-                          />
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
-                            onClick={() => setShowPassword(!showPassword)}
-                          >
-                            {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                          </Button>
-                        </div>
-                        <p className="text-xs text-slate-500">Minimum 6 characters</p>
-                      </div>
-
-                      {error && (
-                        <Alert variant="destructive">
-                          <AlertCircle className="h-4 w-4" />
-                          <AlertDescription>{error}</AlertDescription>
-                        </Alert>
-                      )}
-
-                      <Button type="submit" className={primaryCta} disabled={isLoading}>
-                        {isLoading ? (
-                          <>
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            Creating account...
-                          </>
-                        ) : (
-                          "Create Account"
-                        )}
-                      </Button>
-                    </form>
-                  </TabsContent>
-                </Tabs>
-              </CardContent>
-            </Card>
-          </div>
-          <BackHome />
-        </div>
-      </div>
+            <TabsContent value="register" className="mt-6">
+              <form onSubmit={handleRegister} noValidate className="grid gap-5">
+                <Field id="name" label="Full name" error={fieldErrors.name}>
+                  <input id="name" type="text" autoComplete="name" value={formData.name} onChange={(e) => updateFormData("name", e.target.value)}
+                    aria-invalid={!!fieldErrors.name} aria-describedby={describe("name")} className={inputCls(!!fieldErrors.name)} />
+                </Field>
+                <Field id="reg-email" label="Work email" error={fieldErrors.email}>
+                  <input id="reg-email" type="email" autoComplete="email" value={formData.email} onChange={(e) => updateFormData("email", e.target.value)}
+                    aria-invalid={!!fieldErrors.email} aria-describedby={fieldErrors.email ? "reg-email-error" : undefined} className={inputCls(!!fieldErrors.email)} />
+                </Field>
+                <Field id="reg-password" label="Password" error={fieldErrors.password} hint={`At least ${MIN_PASSWORD} characters.`}>
+                  <div className="relative">
+                    <input id="reg-password" type={showPassword ? "text" : "password"} autoComplete="new-password" value={formData.password}
+                      onChange={(e) => updateFormData("password", e.target.value)} aria-invalid={!!fieldErrors.password}
+                      aria-describedby={fieldErrors.password ? "reg-password-error" : "reg-password-hint"} className={`${inputCls(!!fieldErrors.password)} pr-11`} />
+                    {passwordToggle}
+                  </div>
+                </Field>
+                {error && <ErrorBox>{error}</ErrorBox>}
+                <button type="submit" className={primary} disabled={isLoading}>
+                  {isLoading ? <><Loader2 className="h-4 w-4 animate-spin" /> Creating account</> : "Create account"}
+                </button>
+              </form>
+            </TabsContent>
+          </Tabs>
+        </StepPanel>
+      </OnboardingShell>
     )
   }
 
   if (step === "notion") {
     return (
-      <div className={pageShell}>
-        <Navbar />
-        <div className="relative mx-auto w-full max-w-3xl">
-          <Card className={glassCard}>
-            <AccentStrip />
-            <CardHeader className="border-b border-slate-200 bg-white">
-              <div className="mb-4 flex items-center gap-2">
-                <span className="rounded-full bg-primary   px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-white shadow-sm">
-                  Step 2 of 3
-                </span>
-              </div>
-              <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary  to-rose-500 shadow-lg ">
-                <Database className="h-8 w-8 text-white" />
-              </div>
-              <CardTitle className="text-center text-3xl font-semibold text-slate-900">
-                Connect Notion Workspace
-              </CardTitle>
-              <CardDescription className="text-center text-slate-600">
-                Power your admin dashboard with live payment records and automations.
-              </CardDescription>
-            </CardHeader>
-
-            <CardContent className="space-y-5 p-8">
-              <div className="rounded-2xl border border-slate-200 bg-secondary p-5 ">
-                <h3 className="mb-3 text-sm font-semibold text-primary">
-                  What SKYPay sets up instantly
-                </h3>
-                <ul className="space-y-2 text-sm text-primary">
-                  <li>Payments database for outgoing and incoming requests</li>
-                  <li>Transactions ledger for on-chain settlement tracking</li>
-                  <li>Invoice lifecycle workflow with statuses and reminders</li>
-                </ul>
-              </div>
-
-              <div className="rounded-2xl border border-slate-200 bg-white p-5 text-sm text-slate-600 ">
-                OAuth-secured connection. You will be redirected to Notion to choose and authorize
-                your workspace.
-              </div>
-
-              {error && (
-                <Alert variant="destructive">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertDescription>{error}</AlertDescription>
-                </Alert>
-              )}
-
-              <Button onClick={handleNotionConnect} className={primaryCta} disabled={isLoading}>
-                {isLoading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Redirecting to Notion...
-                  </>
-                ) : (
-                  <>
-                    <Database className="mr-2 h-4 w-4" />
-                    Connect with Notion
-                  </>
-                )}
-              </Button>
-            </CardContent>
-          </Card>
-          <BackHome />
-        </div>
-      </div>
+      <OnboardingShell step={STEP_ID.notion}>
+        <StepPanel title="Connect Notion" description="SKYPay keeps an invoice database in your workspace and updates it when payments settle.">
+          <ul className="grid gap-4">
+            {[
+              "A SKYPay page with incoming and outgoing payment databases",
+              "New rows become NEAR invoices with a checkout and x402 pay link",
+              "Status changes to paid only after on-chain verification",
+            ].map((t) => (
+              <li key={t} className="flex gap-3">
+                <Check className="mt-0.5 h-4 w-4 shrink-0 text-primary" strokeWidth={2.25} />
+                <span className="leading-relaxed">{t}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-6 rounded-lg bg-muted p-4 text-sm leading-relaxed text-muted-foreground">
+            You will be sent to Notion to choose which workspace SKYPay can use. You can revoke access from Notion at any time.
+          </p>
+          <div className="mt-8 grid gap-3">
+            {error && <ErrorBox>{error}</ErrorBox>}
+            <button type="button" onClick={handleNotionConnect} className={primary} disabled={isLoading}>
+              {isLoading ? <><Loader2 className="h-4 w-4 animate-spin" /> Opening Notion</> : <><Database className="h-4 w-4" /> Connect Notion</>}
+            </button>
+            <button type="button" onClick={() => setStep("near")} className={secondary} disabled={isLoading}>Skip for now</button>
+          </div>
+        </StepPanel>
+      </OnboardingShell>
     )
   }
 
-  if (step === "wallet") {
+  return (
+    <OnboardingShell step={STEP_ID.near}>
+      <NearStep onDone={() => router.push(redirectTo)} onSkip={() => router.push("/dashboard")} refreshUser={refreshUser} />
+    </OnboardingShell>
+  )
+}
+
+type NearState =
+  | { kind: "checking" }
+  | { kind: "idle" }
+  | { kind: "working" }
+  | { kind: "done"; company: string }
+  | { kind: "error"; message: string; retry: boolean }
+
+/** Creates the company account, vault and agent key. Same calls as the Finance setup screen. */
+function NearStep({ onDone, onSkip, refreshUser }: { onDone: () => void; onSkip: () => void; refreshUser: () => Promise<void> }) {
+  const { user } = useAuth()
+  const [state, setState] = useState<NearState>({ kind: "checking" })
+  const [backedUp, setBackedUp] = useState(false)
+
+  const check = useCallback(async () => {
+    setState({ kind: "checking" })
+    try {
+      const s = await authService.api<{ configured: boolean; company: string | null }>("/api/near/status")
+      if (s.company) setState({ kind: "done", company: s.company })
+      else if (!s.configured) setState({ kind: "error", message: "NEAR is not configured on this SKYPay server yet. An administrator needs to run the NEAR bootstrap.", retry: false })
+      else setState({ kind: "idle" })
+    } catch (e) {
+      setState({ kind: "error", message: e instanceof Error ? e.message : "Could not reach SKYPay.", retry: true })
+    }
+  }, [])
+
+  useEffect(() => { if (user) check() }, [user, check])
+
+  const create = async () => {
+    if (!user) return
+    setState({ kind: "working" })
+    try {
+      const { publicKey } = await ensureOwnerKey(user.id)
+      const r = await authService.api<{ company: string }>("/api/near/provision", { method: "POST", body: JSON.stringify({ publicKey }) })
+      await refreshUser()
+      setState({ kind: "done", company: r.company })
+    } catch (e) {
+      // The account may exist even if this response was lost (the server answers 409 on a repeat).
+      const s = await authService.api<{ company: string | null }>("/api/near/status").catch(() => null)
+      if (s?.company) {
+        await refreshUser()
+        setState({ kind: "done", company: s.company })
+      } else {
+        setState({ kind: "error", message: e instanceof Error ? e.message : "Account creation failed.", retry: true })
+      }
+    }
+  }
+
+  const parts = [
+    { Icon: KeyRound, t: "Company account", d: "Receives invoice payments. Its key is generated in this browser and never sent to SKYPay." },
+    { Icon: Vault, t: "Operating vault", d: "A contract holding money the agent may spend. Only you can fund it, set limits or withdraw." },
+    { Icon: ShieldCheck, t: "Agent key", d: "Can only call the vault's pay method, within your limits." },
+  ]
+
+  if (state.kind === "done") {
     return (
-      <div className={pageShell}>
-        <Navbar />
-        <div className="relative mx-auto w-full max-w-3xl">
-          <Card className={glassCard}>
-            <AccentStrip />
-            <CardHeader className="border-b border-slate-200 bg-white">
-              <div className="mb-4 flex items-center gap-2">
-                <span className="rounded-full bg-primary   px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-white shadow-sm">
-                  Step 3 of 3
-                </span>
-              </div>
-              <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary   shadow-lg shadow-emerald-500/30">
-                <Wallet className="h-8 w-8 text-white" />
-              </div>
-              <CardTitle className="text-center text-3xl font-semibold text-slate-900">
-                Create Your Wallet
-              </CardTitle>
-              <CardDescription className="text-center text-slate-600">
-                Final setup to activate transfers, collections, and automated refunds.
-              </CardDescription>
-            </CardHeader>
-
-            <CardContent className="space-y-5 p-8">
-              {/* Option 1 — managed wallet (powers the autonomous agent) */}
-              <div className="rounded-2xl border border-emerald-200/70 bg-emerald-50/60 p-5 ">
-                <h3 className="mb-1 text-sm font-semibold text-emerald-950">Managed agent wallet</h3>
-                <p className="mb-3 text-xs text-emerald-800">
-                  A secure wallet the AI agent controls, so it can send, collect, and auto-refund
-                  payments on its own.
-                </p>
-                <ul className="space-y-2 text-sm text-emerald-900">
-                  <li>Enables autonomous scheduled payments and refunds</li>
-                  <li>Multi-asset support for ETH, stablecoins, and more</li>
-                  <li>Development faucet support for rapid testing</li>
-                </ul>
-              </div>
-
-              {error && (
-                <Alert variant="destructive">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertDescription>{error}</AlertDescription>
-                </Alert>
-              )}
-
-              <Button
-                onClick={handleWalletCreation}
-                className="h-11 w-full rounded-xl bg-primary   text-white shadow-lg shadow-emerald-500/25 transition  "
-                disabled={isLoading}
-              >
-                {isLoading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Creating wallet...
-                  </>
-                ) : (
-                  <>
-                    <Wallet className="mr-2 h-4 w-4" />
-                    Create Managed Wallet
-                  </>
-                )}
-              </Button>
-
-              {/* Divider */}
-              <div className="flex items-center gap-3 text-xs uppercase tracking-wider text-slate-400">
-                <span className="h-px flex-1 bg-slate-300/60" />
-                or
-                <span className="h-px flex-1 bg-slate-300/60" />
-              </div>
-
-              {/* Option 2 — connect your own self-custody wallet */}
-              <div className="rounded-2xl border border-slate-200 bg-secondary p-5 ">
-                <h3 className="mb-1 text-sm font-semibold text-primary">Connect your own wallet</h3>
-                <p className="mb-4 text-xs text-primary">
-                  Link MetaMask or another wallet you control to receive payouts and withdraw. You
-                  approve every transaction yourself.
-                </p>
-                <ConnectWallet
-                  linkedAddress={(user as { externalWalletAddress?: string | null })?.externalWalletAddress}
-                  onLinked={() => router.push("/dashboard")}
-                />
-              </div>
-
-              <Button
-                variant="outline"
-                onClick={() => router.push("/dashboard")}
-                className="h-11 w-full rounded-xl border-slate-200 bg-white  hover:bg-white"
-                disabled={isLoading}
-              >
-                Skip for now
-              </Button>
-
-              <p className="text-center text-xs text-slate-500">
-                You can set up wallets later from your dashboard.
-              </p>
-            </CardContent>
-          </Card>
-          <BackHome />
+      <StepPanel title="Your NEAR account is ready" description="Back up the owner key now. It is the only way to manage the vault from another browser.">
+        <div className="flex items-center gap-3 rounded-lg bg-success/10 p-4 text-sm text-success">
+          <CheckCircle2 className="h-5 w-5 shrink-0" />
+          <span className="min-w-0">Company account <span className="break-all font-mono">{state.company}</span></span>
         </div>
-      </div>
+        <div className="mt-8 grid gap-3">
+          <button type="button" className={secondary} onClick={() => setBackedUp(downloadOwnerKeyBackup(user!.id, state.company))}>
+            <Download className="h-4 w-4" /> {backedUp ? "Key backup downloaded" : "Download owner key backup"}
+          </button>
+          <button type="button" className={primary} onClick={onDone}>Go to dashboard <ArrowRight className="h-4 w-4" /></button>
+        </div>
+      </StepPanel>
     )
   }
 
-  return null
+  return (
+    <StepPanel title="Create your NEAR company account" description="Free on testnet. SKYPay sponsors account creation and every network fee.">
+      <ul className="grid gap-5">
+        {parts.map(({ Icon, t, d }) => (
+          <li key={t} className="flex gap-4">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-primary">
+              {state.kind === "working" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Icon className="h-4 w-4" strokeWidth={1.75} />}
+            </span>
+            <div>
+              <p className="font-medium">{t}</p>
+              <p className="mt-0.5 text-sm leading-relaxed text-muted-foreground">{d}</p>
+            </div>
+          </li>
+        ))}
+      </ul>
+      <div className="mt-8 grid gap-3" aria-live="polite">
+        {state.kind === "error" && (
+          <ErrorBox>
+            <p>{state.message}</p>
+            {state.retry && <p className="mt-1 text-destructive/80">You can try again. Your browser key is kept.</p>}
+          </ErrorBox>
+        )}
+        {state.kind === "working" && <p className="text-sm text-muted-foreground">Creating accounts on NEAR testnet. This takes about 30 seconds; keep this tab open.</p>}
+        <button type="button" className={primary} onClick={state.kind === "error" && !state.retry ? check : create} disabled={state.kind === "working" || state.kind === "checking"}>
+          {state.kind === "working" ? <><Loader2 className="h-4 w-4 animate-spin" /> Creating accounts</>
+            : state.kind === "checking" ? <><Loader2 className="h-4 w-4 animate-spin" /> Checking</>
+            : state.kind === "error" && !state.retry ? "Check again"
+            : state.kind === "error" ? "Try again" : "Create NEAR account"}
+        </button>
+        <button type="button" className={secondary} onClick={onSkip} disabled={state.kind === "working"}>Skip for now</button>
+      </div>
+    </StepPanel>
+  )
 }
 
 export default function AuthPage() {

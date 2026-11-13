@@ -46,12 +46,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         
         if (authService.isAuthenticated()) {
           console.log('📱 Token found, fetching user data...')
-          // Try to get user data from dashboard
-          const response = await authService.getDashboard()
-          console.log('📊 Dashboard response:', response)
-          
+          // Restore the session
+          const response = await authService.getMe()
+                    
           if (response.success && response.data) {
-            const data = response.data as { user?: User }
+            const data = response.data
             if (data.user) {
               console.log('✅ User authenticated:', data.user.email)
               setUser(data.user)
@@ -61,7 +60,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               console.log('❌ Token is invalid, clearing token')
               authService.removeToken()
             } else {
-              console.warn('⚠️ Dashboard request failed without token error:', response.error)
+              console.warn('⚠️ Session restore failed without token error:', response.error)
             }
           }
         } else {
@@ -78,7 +77,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     checkAuth()
-  }, [isClient])
+  }, [isClient, isTokenInvalidError])
 
   const login = useCallback(async (email: string, password: string) => {
     try {
@@ -135,9 +134,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const refreshUser = useCallback(async () => {
     try {
       console.log('🔄 Refreshing user data...')
-      const response = await authService.getDashboard()
+      const response = await authService.getMe()
       if (response.success && response.data) {
-        const data = response.data as { user?: User }
+        const data = response.data
         if (data.user) {
           console.log('✅ User data refreshed:', data.user.email)
           setUser(data.user)

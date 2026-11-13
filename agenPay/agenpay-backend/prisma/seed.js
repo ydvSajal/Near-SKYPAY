@@ -50,19 +50,6 @@ async function main() {
 
   console.log('✅ System configuration created');
 
-  // Create demo transactions (optional)
-  const demoTransactions = [
-    
-  ];
-
-  for (const transaction of demoTransactions) {
-    await prisma.transaction.create({
-      data: transaction,
-    });
-  }
-
-  console.log('✅ Demo transactions created');
-
   console.log('🎉 Database seeding completed!');
 }
 

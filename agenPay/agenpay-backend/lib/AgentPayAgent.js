@@ -17,8 +17,6 @@ import nodemailer from 'nodemailer';
 import { formatUnits } from './near/units.js';
 import { Client } from '@notionhq/client';
 import { PrismaClient } from '@prisma/client';
-import { Coinbase, Wallet } from '@coinbase/coinbase-sdk';
-import X402PayService from './X402PayService.js';
 import NotionService from './NotionService.js';
 
 // MiniMax LLM Wrapper for LangChain compatibility
@@ -162,9 +160,8 @@ export class AgenPayAgent {
       // Preserve valid internal whitespace in passwords while removing accidental outer whitespace.
       emailPass: (process.env.EMAIL_PASS || 'mock-password').trim(),
       emailFrom: process.env.EMAIL_FROM || 'AgenPay <noreply@agenpay.com>',
-      // Keep SEI as default to preserve existing behavior for Sei-native flows.
-      defaultCurrency: process.env.DEFAULT_CURRENCY || 'SEI',
-      defaultNetwork: process.env.DEFAULT_NETWORK || 'sei-testnet',  
+      defaultCurrency: 'USDC',
+      defaultNetwork: 'near-testnet',
       agentName: process.env.AGENT_NAME || 'AgenPay AI',
       monitoringInterval: parseInt(process.env.MONITORING_INTERVAL_MINUTES) || 1,
       ...userConfig
@@ -213,27 +210,6 @@ export class AgenPayAgent {
         console.log(`📚 [User ${this.userId}] Notion client initialized`);
       } else {
         console.log(`⚠️ [User ${this.userId}] No Notion API key provided`);
-      }
-
-      // Setup Privy client
-      if (process.env.PRIVY_APP_ID && process.env.PRIVY_APP_SECRET) {
-        try {
-          const { PrivyClient } = await import('@privy-io/server-auth');
-          this.privy = new PrivyClient(process.env.PRIVY_APP_ID, process.env.PRIVY_APP_SECRET);
-          console.log(`💳 [User ${this.userId}] Privy client initialized`);
-        } catch (privyError) {
-          console.warn(`⚠️ [User ${this.userId}] Privy initialization failed:`, privyError.message);
-        }
-      } else {
-        console.log(`⚠️ [User ${this.userId}] Privy credentials not configured`);
-      }
-
-      // Setup X402Pay service (use shared instance if provided)
-      this.x402PayService = this.sharedServices.x402PayService || new X402PayService();
-      if (this.sharedServices.x402PayService) {
-        console.log(`✅ [User ${this.userId}] Using shared X402PayService instance`);
-      } else {
-        console.log(`⚠️ [User ${this.userId}] Creating new X402PayService instance (not recommended)`);
       }
 
       // Setup LLM based on provider with fallback chain: MiniMax → Gemini → OpenAI
@@ -447,415 +423,11 @@ export class AgenPayAgent {
   }
 
   setupTools() {
-    // Simplified tools setup to avoid compatibility issues
-    console.log(`🔧 [User ${this.userId}] Setting up simplified tools...`);
-    
-    // Create a simple tool array - if this fails, we'll use the simplified agent
-    this.tools = [];
-    
-    try {
-      // Simple tool creation that should work with most LangChain versions
-      this.extractPaymentDetails = tool(
-        async ({ input }) => {
-          console.log(`🔍 [User ${this.userId}] Extracting payment details from:`, input);
-          
-          // Enhanced regex patterns for better extraction
-          const amountMatch = input.match(/(\$?[\d,]+\.?\d*)\s*(ETH|BTC|USD|EUR|USDC|USDT)?/i);
-          const emailMatch = input.match(/[\w\.-]+@[\w\.-]+\.\w+/);
-          const addressMatch = input.match(/(0x[a-fA-F0-9]{40})/);
-          const descriptionMatch = input.match(/for\s+(.+?)(?:\s+to\s+|\s+at\s+|\s+from\s+|$)/i);
-          const nameMatch = input.match(/to\s+([\w\s]+?)(?:\s+at\s+|\s+\(|$)/i);
-          
-          // Transaction type detection
-          let transactionType = 'ask_payment';
-          if (input.toLowerCase().includes('refund') || input.toLowerCase().includes('ask and refund')) {
-            transactionType = 'ask_and_refund';
-          } else if (input.toLowerCase().includes('subscription')) {
-            transactionType = 'subscription';
-          }
-          
-          // Schedule type detection
-          let scheduleType = 'immediate';
-          let scheduledDate = null;
-          if (input.toLowerCase().includes('schedule') || input.toLowerCase().includes('later')) {
-            scheduleType = 'scheduled';
-            const dateMatch = input.match(/on\s+([\d\-\/]+)|in\s+(\d+)\s+(days?|weeks?|months?)/i);
-            if (dateMatch) {
-              if (dateMatch[1]) {
-                scheduledDate = new Date(dateMatch[1]).toISOString();
-              } else if (dateMatch[2] && dateMatch[3]) {
-                const amount = parseInt(dateMatch[2]);
-                const unit = dateMatch[3].toLowerCase();
-                const future = new Date();
-                if (unit.startsWith('day')) future.setDate(future.getDate() + amount);
-                else if (unit.startsWith('week')) future.setDate(future.getDate() + amount * 7);
-                else if (unit.startsWith('month')) future.setMonth(future.getMonth() + amount);
-                scheduledDate = future.toISOString();
-              }
-            }
-          }
-          
-          const result = {
-            amount: amountMatch ? amountMatch[1].replace(/[\$,]/g, '') : null,
-            currency: amountMatch ? (amountMatch[2] || this.config.defaultCurrency) : this.config.defaultCurrency,
-            network: this.config.defaultNetwork,
-            recipientEmail: emailMatch ? emailMatch[0] : null,
-            recipientName: nameMatch ? nameMatch[1].trim() : null,
-            recipientAddress: addressMatch ? addressMatch[0] : null,
-            description: descriptionMatch ? descriptionMatch[1].trim() : 'Payment request',
-            transactionType,
-            scheduleType,
-            scheduledDate,
-            aiPrompt: input,
-          };
-          
-          console.log(`✅ [User ${this.userId}] Extracted payment data:`, result);
-          return result;
-        },
-        {
-          name: 'extractPaymentDetails',
-          description: 'Parse comprehensive payment information from natural language input',
-          schema: z.object({
-            input: z.string().describe('Natural language payment request'),
-          }),
-        }
-      );
-
-      // Add create payment link tool
-      this.createPaymentLink = tool(
-        async ({ paymentData }) => {
-          console.log(`💳 [User ${this.userId}] Creating X402Pay payment link...`);
-          
-          try {
-            // Create X402Pay payment link
-            const paymentLink = await this.x402PayService.createPaymentRequest({
-              userId: this.userId,  // Pass the userId
-              amount: paymentData.amount,
-              currency: paymentData.currency,
-              description: paymentData.description,
-              recipientEmail: paymentData.recipientEmail,
-              network: paymentData.network
-            });
-
-            console.log(`✅ [User ${this.userId}] Payment link created:`, paymentLink);
-            console.log(`🔗 [User ${this.userId}] PAYMENT LINK: ${paymentLink.url || paymentLink.x402PayLink}`);
-            console.log(`💰 [User ${this.userId}] AMOUNT: ${paymentData.amount} ${paymentData.currency}`);
-            console.log(`📧 [User ${this.userId}] RECIPIENT: ${paymentData.recipientEmail}`);
-            
-            return {
-              success: true,
-              paymentLink: paymentLink.url || paymentLink.x402PayLink,
-              paymentId: paymentLink.paymentId || paymentLink.id,
-              message: `Payment link created successfully: ${paymentLink.url || paymentLink.x402PayLink}`
-            };
-          } catch (error) {
-            console.error(`❌ [User ${this.userId}] Payment link creation failed:`, error);
-            return {
-              success: false,
-              error: error.message,
-              message: 'Failed to create payment link'
-            };
-          }
-        },
-        {
-          name: 'createPaymentLink',
-          description: 'Create an X402Pay payment link for crypto payments',
-          schema: z.object({
-            paymentData: z.object({
-              amount: z.string(),
-              currency: z.string(),
-              description: z.string(),
-              recipientEmail: z.string(),
-              network: z.string()
-            })
-          })
-        }
-      );
-
-      // Add create multi-token payment link tool (disabled)
-      this.createMultiTokenPaymentLink = tool(
-        async ({ paymentData, acceptedTokens = ['SEI', 'USDC', 'USDT'] }) => {
-          console.log(`💱 [User ${this.userId}] Creating multi-token X402Pay payment link...`);
-          console.log(`⚠️ [User ${this.userId}] OKX DEX Service is disabled - using standard payment`);
-          
-          try {
-            // Since OKX DEX is disabled, fallback to regular payment link
-            const fallbackLink = await this.x402PayService.createPaymentRequest({
-              userId: this.userId,
-              amount: paymentData.amount,
-              currency: paymentData.currency,
-              description: `${paymentData.description} (Multi-token disabled - standard payment)`,
-              recipientEmail: paymentData.recipientEmail,
-              network: paymentData.network
-            });
-
-            return {
-              success: true,
-              paymentLink: fallbackLink.x402PayLink,
-              paymentId: fallbackLink.paymentId,
-              multiTokenEnabled: false,
-              okxDexDisabled: true,
-              message: `Payment link created (standard mode - OKX DEX disabled): ${fallbackLink.x402PayLink}`
-            };
-          } catch (fallbackError) {
-            return {
-              success: false,
-              error: fallbackError.message,
-              message: 'Failed to create payment link (OKX DEX disabled)'
-            };
-          }
-        },
-        {
-          name: 'createMultiTokenPaymentLink',
-          description: 'Create a multi-token X402Pay payment link (OKX DEX disabled - standard payment only)',
-          schema: z.object({
-            paymentData: z.object({
-              amount: z.string(),
-              currency: z.string().describe('Preferred currency to receive (e.g., USDC, SEI)'),
-              description: z.string(),
-              recipientEmail: z.string(),
-              recipientName: z.string().optional(),
-              network: z.string(),
-              transactionType: z.string().optional(),
-              scheduleType: z.string().optional(),
-              scheduledDate: z.string().optional(),
-              aiPrompt: z.string().optional()
-            }),
-            acceptedTokens: z.array(z.string()).optional().describe('Array of token symbols to accept for payment (default: [SEI, USDC, USDT])')
-          })
-        }
-      );
-
-      // Add get payment options tool
-      this.getPaymentOptions = tool(
-        async ({ paymentId, userPreferredToken = 'SEI' }) => {
-          console.log(`🧮 [User ${this.userId}] Getting payment options for ${paymentId}`);
-          
-          try {
-            const options = await this.x402PayService.calculatePaymentOptions(paymentId, userPreferredToken);
-            
-            console.log(`📊 [User ${this.userId}] Payment options calculated:`, options);
-            
-            if (options.swapRequired && options.swapPossible) {
-              return {
-                success: true,
-                swapRequired: true,
-                inputAmount: options.inputAmount,
-                outputAmount: options.outputAmount,
-                estimatedGas: options.estimatedGas,
-                tradeFee: options.tradeFee,
-                priceImpact: options.priceImpact,
-                route: options.route,
-                message: `Swap available: ${options.inputAmount} ${userPreferredToken} → ${options.outputAmount} ${options.receiveCurrency}`
-              };
-            } else if (options.swapRequired && !options.swapPossible) {
-              return {
-                success: false,
-                swapRequired: true,
-                swapPossible: false,
-                error: options.error,
-                message: `Swap not available: ${options.error}`
-              };
-            } else {
-              return {
-                success: true,
-                swapRequired: false,
-                directPayment: true,
-                paymentAmount: options.paymentAmount,
-                paymentCurrency: options.paymentCurrency,
-                message: `Direct payment: ${options.paymentAmount} ${options.paymentCurrency}`
-              };
-            }
-          } catch (error) {
-            console.error(`❌ [User ${this.userId}] Error getting payment options:`, error);
-            return {
-              success: false,
-              error: error.message,
-              message: 'Failed to get payment options'
-            };
-          }
-        },
-        {
-          name: 'getPaymentOptions',
-          description: 'Get available payment options and swap routes for a multi-token payment',
-          schema: z.object({
-            paymentId: z.string(),
-            userPreferredToken: z.string().optional().describe('Token the user wants to pay with (default: SEI)')
-          })
-        }
-      );
-
-      // Add send email tool
-      this.sendPaymentEmail = tool(
-        async ({ paymentData, paymentLink }) => {
-          console.log(`📧 [User ${this.userId}] Sending payment email...`);
-          console.log(`📧 [User ${this.userId}] Payment link received:`, paymentLink);
-          console.log(`📧 [User ${this.userId}] Payment data received:`, paymentData);
-          
-          try {
-            const emailContent = this.generateX402PayEmailTemplate({
-              amount: paymentData.amount,
-              currency: paymentData.currency,
-              description: paymentData.description,
-              paymentLink: paymentLink,
-              recipientName: paymentData.recipientName,
-              transactionType: paymentData.transactionType,
-              userConfig: this.userConfig
-            });
-
-            // Check if we have real email credentials
-            const isRealEmail = this.config.emailUser !== 'test@example.com' && this.config.emailPass !== 'mock-password';
-            
-            if (isRealEmail) {
-              // Send real email
-              await this.emailTransporter.sendMail({
-                from: this.config.emailFrom,
-                to: paymentData.recipientEmail,
-                subject: `Payment Request - ${paymentData.amount} ${paymentData.currency}`,
-                html: emailContent.html || emailContent
-              });
-              console.log(`📧 [User ${this.userId}] ✅ REAL EMAIL SENT to: ${paymentData.recipientEmail}`);
-            } else {
-              console.log(`📧 [User ${this.userId}] 🧪 MOCK EMAIL (would be sent to): ${paymentData.recipientEmail}`);
-              console.log(`📧 [User ${this.userId}] 📝 Email content preview:`, emailContent.substring(0, 200) + '...');
-            }
-            
-            return {
-              success: true,
-              message: `Payment request email sent to ${paymentData.recipientEmail}`,
-              emailSent: true
-            };
-          } catch (error) {
-            console.error(`❌ [User ${this.userId}] Email sending failed:`, error);
-            return {
-              success: false,
-              error: error.message,
-              message: 'Failed to send payment email'
-            };
-          }
-        },
-        {
-          name: 'sendPaymentEmail',
-          description: 'Send payment request email with X402Pay link',
-          schema: z.object({
-            paymentData: z.object({
-              amount: z.string(),
-              currency: z.string(),
-              description: z.string(),
-              recipientEmail: z.string(),
-              recipientName: z.string().optional(),
-              transactionType: z.string()
-            }),
-            paymentLink: z.string()
-          })
-        }
-      );
-
-      // Add save to Notion tool
-      this.saveToNotion = tool(
-        async ({ paymentData, paymentLink }) => {
-          console.log(`🗃️ [User ${this.userId}] Saving to Notion...`);
-          
-          try {
-            if (!this.notion) {
-              return {
-                success: false,
-                message: 'Notion not connected for this user'
-              };
-            }
-
-            // Find user's incoming payments database
-            const database = await this.prisma.notionDatabase.findFirst({
-              where: { 
-                userId: this.userId, 
-                databaseType: 'INCOMING_PAYMENTS',
-                isActive: true 
-              }
-            });
-
-            if (!database) {
-              return {
-                success: false,
-                message: 'Notion database not found for user'
-              };
-            }
-
-            // Extract payment ID from the payment link
-            const paymentId = paymentLink.split('/').pop(); // Get the last part of the URL
-            console.log(`🔑 [User ${this.userId}] Using payment ID for Notion: ${paymentId}`);
-
-            // Create Notion service and add record
-            const notionService = new NotionService(this.userConfig.notionApiKey);
-            const result = await notionService.addIncomingPaymentRecord(database.databaseId, {
-              requestId: paymentId, // Use the actual payment ID instead of REQ-timestamp
-              amount: paymentData.amount,
-              currency: paymentData.currency,
-              network: paymentData.network,
-              recipientEmail: paymentData.recipientEmail,
-              recipientName: paymentData.recipientName,
-              description: paymentData.description,
-              aiPrompt: paymentData.aiPrompt,
-              transactionType: paymentData.transactionType,
-              scheduleType: paymentData.scheduleType,
-              scheduledDate: paymentData.scheduledDate,
-              status: 'processing',
-              x402PayLink: paymentLink
-            });
-
-            return {
-              success: true,
-              message: 'Payment request saved to Notion database',
-              notionPageId: result.id
-            };
-          } catch (error) {
-            console.error(`❌ [User ${this.userId}] Notion save failed:`, error);
-            return {
-              success: false,
-              error: error.message,
-              message: 'Failed to save to Notion'
-            };
-          }
-        },
-        {
-          name: 'saveToNotion',
-          description: 'Save payment request to Notion database',
-          schema: z.object({
-            paymentData: z.object({
-              amount: z.string(),
-              currency: z.string(),
-              network: z.string(),
-              recipientEmail: z.string(),
-              recipientName: z.string().optional(),
-              description: z.string(),
-              aiPrompt: z.string(),
-              transactionType: z.string(),
-              scheduleType: z.string(),
-              scheduledDate: z.string().optional()
-            }),
-            paymentLink: z.string()
-          })
-        }
-      );
-
-      if (this.sharedServices.skypay) {
-        // NEAR workflow: typed actions on the SkyPay service. Signing stays outside the model;
-        // the vault contract enforces limits even if the model is wrong or manipulated.
-        this.tools.push(...this.buildSkyPayTools(this.sharedServices.skypay));
-        console.log(`✅ [User ${this.userId}] SkyPay NEAR tools enabled (${this.tools.length})`);
-        return;
-      }
-      this.tools.push(this.extractPaymentDetails);
-      this.tools.push(this.createPaymentLink);
-      this.tools.push(this.createMultiTokenPaymentLink);
-      this.tools.push(this.getPaymentOptions);
-      this.tools.push(this.sendPaymentEmail);
-      this.tools.push(this.saveToNotion);
-      console.log(`✅ [User ${this.userId}] Tools setup completed with ${this.tools.length} tools`);
-      
-    } catch (toolError) {
-      console.warn(`⚠️ [User ${this.userId}] Tool creation failed:`, toolError.message);
-      this.tools = []; // Fallback to no tools
-    }
+    if (!this.sharedServices.skypay) throw new Error('SkyPay service not provided');
+    // Typed actions on the SkyPay service. Signing stays outside the model;
+    // the vault contract enforces limits even if the model is wrong or manipulated.
+    this.tools = this.buildSkyPayTools(this.sharedServices.skypay);
+    console.log(`[User ${this.userId}] SkyPay NEAR tools enabled (${this.tools.length})`);
   }
 
   buildSkyPayTools(skypay) {
@@ -877,7 +449,7 @@ export class AgenPayAgent {
         });
         return {
           success: true, invoiceNumber: inv.number, total: `${formatUnits(inv.amount)} USDC`, dueDate: inv.dueDate.toISOString().slice(0, 10),
-          checkoutLink: `${appUrl}/invoice/${inv.id}`, emailQueued: true, notionSyncQueued: true,
+          checkoutLink: `${appUrl}/invoice/${inv.id}`, x402Link: `${(process.env.BASE_URL || 'http://localhost:3001').replace(/[/]$/, '')}/x402pay/${inv.id}`, emailQueued: true, notionSyncQueued: true,
         };
       }), {
         name: 'create_invoice',
@@ -956,35 +528,7 @@ Rules:
     const callSimpleAgent = async (state) => {
       console.log(`🤖 [User ${this.userId}] Simple agent processing with ${state.messages?.length || 0} messages`);
       
-      const systemPrompt = `You are ${this.config.agentName}, an AI-powered crypto payment assistant.
-
-**What I can help you with:**
-
-1. **Payment Request Understanding**: I can help you understand and explain crypto payment requests
-2. **Payment Information**: I provide information about:
-  - Supported network: Sei Testnet only
-   - Supported currencies: SEI, ETH, USDC, USDT
-   - Transaction types: Standard payments, Refunds, Subscriptions
-   - Scheduled payments
-
-3. **Guidance**: I can guide you through:
-   - How to create payment links
-   - How crypto payments work
-   - How to use testnet faucets
-   - Wallet setup and management
-
-**Current Mode**: Simplified (running without advanced tool integration for maximum compatibility with Gemini AI)
-
-**How to create payments:**
-To create an actual payment request, you'll need to use the payment creation interface in the dashboard. I can guide you through the process and explain what information you'll need.
-
-**Example questions I can answer:**
-- "How do I create a payment request?"
-- "What currencies are supported?"
-- "How do scheduled payments work?"
-- "Explain how crypto payments work"
-
-How can I assist you with payments today?`;
+      const systemPrompt = `You are ${this.config.agentName}, a finance assistant for invoices and supplier payments in USDC on NEAR. Tools are temporarily unavailable, so explain what you can do (create invoices, pay registered suppliers within vault limits, report status) and point the user to the Finance page for actions.`;
 
       const messages = [
         new SystemMessage(systemPrompt),
@@ -1061,73 +605,8 @@ How can I assist you with payments today?`;
           })));
         }
         
-        const systemPrompt = `You are ${this.config.agentName}, an advanced AI payment agent for user ${this.userId}.
-
-🧠 CONVERSATION CONTINUITY:
-You maintain memory of our entire conversation. If we've already discussed payment details, build upon that context instead of starting over.
-
-🎯 WORKFLOW INSTRUCTIONS:
-1. If a new payment request needs details extracted, use the extractPaymentDetails tool ONCE
-2. If the user confirms or asks to proceed with previously extracted details, START the payment workflow:
-   a) FIRST: Choose between createPaymentLink (standard) or createMultiTokenPaymentLink (multi-token with OKX DEX)
-  b) AFTER getting the payment link result, ALWAYS use sendPaymentEmail if recipientEmail exists
-  c) AFTER email is sent (or attempted), ALWAYS use saveToNotion to store a record for tracking/audit
-3. If the user asks questions about previous requests, refer to the conversation history
-4. Do NOT call tools repeatedly for the same request
-5. Do NOT forget previous conversation context
-6. IMPORTANT: Call only ONE tool at a time, then wait for the result before deciding the next action
-
-💱 MULTI-TOKEN PAYMENT FEATURES (NEW!):
-- When user mentions "any token", "flexible payment", or wants to accept multiple currencies, use createMultiTokenPaymentLink
-- Multi-token payments accept ETH, SEI, USDC, USDT, WETH and automatically swap to the recipient's preferred currency
-- Powered by OKX DEX API for optimal swap routes and pricing
-- Use getPaymentOptions to show swap calculations and payment routes
-
-💳 AVAILABLE TOOLS:
-- extractPaymentDetails: Parse payment info from natural language (amount, currency, email, etc.)
-- createPaymentLink: Create standard X402Pay payment link for single crypto currency
-- createMultiTokenPaymentLink: Create multi-token X402Pay payment link with OKX DEX swapping (accepts multiple tokens)
-- getPaymentOptions: Calculate swap routes and payment options for multi-token payments
-- sendPaymentEmail: Send payment request email with X402Pay link
-- saveToNotion: Save payment request to Notion database
-
-🔄 PAYMENT LINK DECISION LOGIC:
-- Use createMultiTokenPaymentLink when:
-  * User wants to accept multiple tokens/currencies
-  * User mentions "flexible payment" or "any token"
-  * User wants optimal pricing through swapping
-- Use createPaymentLink when:
-  * User specifies only one specific currency
-  * Simple, direct payment is preferred
-
-📋 CONVERSATION-AWARE RESPONSES:
-- If new request: Extract details and explain payment options (standard vs multi-token)
-- If user confirms: "Great! I'll proceed with the [multi-token/standard] payment request..." then START with appropriate tool
-- If you just created a payment link: Use sendPaymentEmail and saveToNotion tools with the link
-- If user asks for changes: "I'll update the [specific detail] from our previous discussion..."
-- If user asks questions: Reference the conversation history appropriately
-
-🔄 COMPLETE WORKFLOW:
-When user confirms payment request, execute ONLY ONE TOOL AT A TIME in this order:
-1. FIRST: Call createMultiTokenPaymentLink (preferred) or createPaymentLink with extracted payment data
-2. WAIT for result, then call sendPaymentEmail tool with payment data and the link from step 1 (if recipientEmail is present)
-3. WAIT for result, then call saveToNotion tool with payment data and link
-
-⚠️ CRITICAL: You MUST call tools ONE AT A TIME, NOT in parallel. Wait for each tool result before calling the next tool.
-
-🚫 CRITICAL RULES: 
-- NEVER forget conversation context
-- NEVER ask for details already provided
-- NEVER call extractPaymentDetails for follow-up questions about the same request
-- ALWAYS acknowledge previous context when user responds
-- PREFER multi-token payments for better user experience unless user specifically requests single currency
-- ALWAYS prioritize sending email and saving a Notion entry once a payment link is created
-- If Notion is not connected, clearly report that Notion save was attempted but unavailable
-
-Continue our conversation naturally, building on what we've already discussed.`;
-
         const messages = [
-          new SystemMessage(this.sharedServices.skypay ? this.skyPayPrompt() : systemPrompt),
+          new SystemMessage(this.skyPayPrompt()),
           ...(state.messages || []),
         ];
 
@@ -1267,245 +746,6 @@ Continue our conversation naturally, building on what we've already discussed.`;
     }
   }
 
-  generateX402PayEmailTemplate({ amount, currency, description, paymentLink, recipientName, transactionType, userConfig }) {
-    const isRefundable = transactionType === 'ask_and_refund';
-    const networkValue = userConfig?.network || userConfig?.defaultNetwork || this.config.defaultNetwork || process.env.X402_NETWORK_OVERRIDE || 'sei-testnet';
-    const networkLabel = escapeHtml(networkValue
-      .replace(/[-_]/g, ' ')
-      .replace(/\b\w/g, (character) => character.toUpperCase()));
-    const safeRecipientName = escapeHtml(recipientName || '');
-    const safeAmount = escapeHtml(String(amount));
-    const safeCurrency = escapeHtml(String(currency));
-    const safeDescription = escapeHtml(description || 'Payment request');
-    const safePaymentLink = isValidUrl(paymentLink) ? escapeHtml(paymentLink) : '#';
-    const safeSalutation = safeRecipientName ? `Dear ${safeRecipientName}` : 'Dear Sir or Madam';
-    const issueDate = escapeHtml(new Date().toLocaleDateString('en-US', {
-      year: 'numeric', month: 'long', day: 'numeric'
-    }));
-
-    return `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Payment Request</title>
-  <style>
-    body {
-      margin: 0;
-      padding: 0;
-      background: #f3f5f9;
-      color: #1f2937;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
-    }
-    .wrapper {
-      width: 100%;
-      padding: 28px 12px;
-      box-sizing: border-box;
-    }
-    .container {
-      max-width: 640px;
-      margin: 0 auto;
-      background: #ffffff;
-      border: 1px solid #e5e7eb;
-      border-radius: 12px;
-      overflow: hidden;
-      box-shadow: 0 8px 22px rgba(15, 23, 42, 0.06);
-    }
-    .header {
-      padding: 22px 28px;
-      border-bottom: 1px solid #e5e7eb;
-      background: #fafbff;
-    }
-    .brand {
-      margin: 0;
-      font-size: 20px;
-      font-weight: 700;
-      color: #111827;
-    }
-    .subhead {
-      margin: 6px 0 0;
-      font-size: 13px;
-      color: #6b7280;
-    }
-    .content {
-      padding: 28px;
-    }
-    .greeting {
-      margin: 0 0 10px;
-      font-size: 18px;
-      font-weight: 600;
-      color: #111827;
-    }
-    .lead {
-      margin: 0 0 18px;
-      font-size: 14px;
-      line-height: 1.65;
-      color: #4b5563;
-    }
-    .details {
-      border: 1px solid #e5e7eb;
-      border-radius: 10px;
-      overflow: hidden;
-      margin: 20px 0;
-    }
-    .details-header {
-      padding: 12px 16px;
-      font-size: 13px;
-      font-weight: 700;
-      color: #374151;
-      background: #f9fafb;
-      border-bottom: 1px solid #e5e7eb;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-    }
-    .details-row {
-      display: table;
-      width: 100%;
-      border-bottom: 1px solid #f3f4f6;
-    }
-    .details-row:last-child {
-      border-bottom: none;
-    }
-    .details-label,
-    .details-value {
-      display: table-cell;
-      padding: 11px 16px;
-      font-size: 14px;
-      line-height: 1.4;
-      vertical-align: top;
-    }
-    .details-label {
-      width: 170px;
-      color: #6b7280;
-      font-weight: 600;
-      background: #fcfdff;
-    }
-    .details-value {
-      color: #111827;
-      font-weight: 500;
-      word-break: break-word;
-    }
-    .trust {
-      margin: 20px 0;
-      padding: 16px;
-      border: 1px solid #dbeafe;
-      background: #eff6ff;
-      border-radius: 10px;
-    }
-    .trust-title {
-      margin: 0 0 8px;
-      font-size: 14px;
-      font-weight: 700;
-      color: #1e3a8a;
-    }
-    .trust-list {
-      margin: 0;
-      padding-left: 18px;
-      color: #374151;
-      font-size: 13px;
-      line-height: 1.6;
-    }
-    .cta-wrap {
-      text-align: center;
-      margin: 26px 0 12px;
-    }
-    .cta {
-      display: inline-block;
-      padding: 12px 22px;
-      background: #4f46e5;
-      color: #ffffff !important;
-      text-decoration: none;
-      border-radius: 8px;
-      font-size: 14px;
-      font-weight: 600;
-    }
-    .footer {
-      padding: 18px 28px 24px;
-      border-top: 1px solid #e5e7eb;
-      font-size: 12px;
-      line-height: 1.6;
-      color: #6b7280;
-      text-align: center;
-      background: #fafbfc;
-    }
-    .footer p {
-      margin: 4px 0;
-    }
-  </style>
-</head>
-<body>
-  <div class="wrapper">
-    <div class="container">
-      <div class="header">
-        <h1 class="brand">AgenPay Payment Request</h1>
-        <p class="subhead">Secure crypto payment powered by AgenPay and X402Pay</p>
-      </div>
-
-      <div class="content">
-        <p class="greeting">${safeSalutation},</p>
-        <p class="lead">We are writing to notify you of a payment request issued on your account. The details of this request are set out below for your review. Kindly complete the payment at your earliest convenience using the secure link provided.</p>
-
-        <div class="details">
-          <div class="details-header">Payment Details</div>
-          <div class="details-row">
-            <div class="details-label">Date of Issue</div>
-            <div class="details-value">${issueDate}</div>
-          </div>
-          <div class="details-row">
-            <div class="details-label">Amount Due</div>
-            <div class="details-value">${safeAmount} ${safeCurrency}</div>
-          </div>
-          <div class="details-row">
-            <div class="details-label">Description</div>
-            <div class="details-value">${safeDescription}</div>
-          </div>
-          <div class="details-row">
-            <div class="details-label">Network</div>
-            <div class="details-value">${networkLabel}</div>
-          </div>
-          ${isRefundable ? `
-          <div class="details-row">
-            <div class="details-label">Type</div>
-            <div class="details-value">Auto-refund enabled (funds return after 30 days)</div>
-          </div>
-          ` : ''}
-        </div>
-
-        <div class="trust">
-          <p class="trust-title">Protected by X402Pay Protocol</p>
-          <ul class="trust-list">
-            <li>Cryptographic payment verification</li>
-            <li>No account creation required</li>
-            <li>Direct wallet-to-wallet transfer</li>
-            <li>Fast transaction confirmation</li>
-          </ul>
-        </div>
-
-        <div class="cta-wrap">
-          <a href="${safePaymentLink}" class="cta">Complete Secure Payment</a>
-        </div>
-
-        ${isRefundable ? `
-        <p class="lead" style="margin-top: 16px;">Please note that this request includes automatic refund protection. Where applicable, any funds will be returned to the originating wallet after 30 days.</p>
-        ` : ''}
-
-        <p class="lead" style="margin-top: 20px;">Should you have any questions regarding this request, please reply directly to this email and a member of our team will be pleased to assist you.</p>
-
-        <p class="lead" style="margin-top: 20px; margin-bottom: 0;">Yours sincerely,<br />The AgenPay Team</p>
-      </div>
-
-      <div class="footer">
-        <p>Powered by AgenPay and X402Pay</p>
-        <p>This is an automated payment notification.</p>
-      </div>
-    </div>
-  </div>
-</body>
-</html>
-    `;
-  }
-
   async processPayment(input, threadId = null) {
     try {
       await this.ensureInitialized();
@@ -1607,9 +847,6 @@ Continue our conversation naturally, building on what we've already discussed.`;
       
       console.log(`📥 [User ${this.userId}] Conversation now has ${result.messages?.length || 0} total messages`);
       
-      // Update agent statistics
-      await this.updateAgentStats();
-      
       console.log(`✅ [User ${this.userId}] Payment processing completed`);
       return { ...result, threadId: actualThreadId };
     } catch (error) {
@@ -1638,31 +875,6 @@ Continue our conversation naturally, building on what we've already discussed.`;
       try {
         console.log(`⏰ [User ${this.userId}] Checking scheduled payments and Notion entries...`);
         
-        // 1. Check PostgreSQL for scheduled payments
-        const scheduledPayments = await this.prisma.paymentRequest.findMany({
-          where: { 
-            userId: this.userId, 
-            status: 'scheduled',
-            scheduledDate: {
-              lte: new Date() // Due date has passed
-            }
-          }
-        });
-
-        // Process any due payments from database
-        for (const payment of scheduledPayments) {
-          console.log(`🔔 [User ${this.userId}] Processing scheduled payment: ${payment.id}`);
-          
-          await this.prisma.paymentRequest.update({
-            where: { id: payment.id },
-            data: { status: 'processing' }
-          });
-        }
-
-        if (scheduledPayments.length > 0) {
-          console.log(`✅ [User ${this.userId}] Processed ${scheduledPayments.length} scheduled payments from database`);
-        }
-
         // 2. Check Notion databases for new entries
         await this.checkNotionForNewEntries();
         
@@ -1751,124 +963,29 @@ Continue our conversation naturally, building on what we've already discussed.`;
    * Process a single Notion entry
    */
   async processNotionEntry(notionPage, database) {
+    // A Notion row in draft/scheduled state becomes a real NEAR invoice; the row is then updated with the pay link.
     try {
-      // Extract data from Notion page properties
-      const requestId = this.getNotionProperty(notionPage.properties, 'Request ID');
-      const amount = notionPage.properties['Amount']?.number;
-      const currency = notionPage.properties['Currency']?.select?.name || 'USDC';
-      const recipientEmail = notionPage.properties['Recipient Email']?.email;
-      const recipientName = this.getNotionProperty(notionPage.properties, 'Recipient Name');
-      const description = this.getNotionProperty(notionPage.properties, 'Description');
-      const status = notionPage.properties['Status']?.select?.name;
-      const x402PayLink = notionPage.properties['X402Pay Link']?.url;
-
-      console.log(`📋 [User ${this.userId}] Processing Notion entry: ${requestId} (${amount} ${currency})`);
-
-      // Skip if essential data is missing
-      if (!amount || !recipientEmail) {
-        console.log(`⚠️ [User ${this.userId}] Skipping entry ${requestId}: missing amount or email`);
-        return;
-      }
-
-      // Skip if already has a payment link (already processed)
-      if (x402PayLink) {
-        console.log(`⚠️ [User ${this.userId}] Skipping entry ${requestId}: already has payment link`);
-        return;
-      }
-
-      // Check if this entry already exists in our database
-      const existingRequest = await this.prisma.paymentRequest.findFirst({
-        where: {
-          OR: [
-            { id: requestId },
-            { 
-              AND: [
-                { userId: this.userId },
-                { amount: amount },
-                { recipientEmail: recipientEmail },
-                { description: description }
-              ]
-            }
-          ]
-        }
+      const skypay = this.sharedServices.skypay;
+      if (!skypay) return;
+      const props = notionPage.properties;
+      const amount = props['Amount']?.number;
+      const email = props['Recipient Email']?.email;
+      const description = this.getNotionProperty(props, 'Description') || 'Payment request from Notion';
+      if (!amount || !email || props['X402Pay Link']?.url) return; // incomplete, or already processed
+      const unitPrice = String(amount);
+      const inv = await skypay.createInvoice(this.userId, {
+        customerEmail: email, customerName: this.getNotionProperty(props, 'Recipient Name') || undefined, description,
+        dueDate: new Date(Date.now() + 14 * 86_400_000).toISOString(),
+        lineItems: [{ description, quantity: 1, unitPrice }],
       });
-
-      if (existingRequest) {
-        console.log(`⚠️ [User ${this.userId}] Entry ${requestId} already exists in database, skipping`);
-        return;
-      }
-
-      console.log(`🔄 [User ${this.userId}] Creating payment request for Notion entry: ${requestId}`);
-
-      // Create payment request using X402PayService
-      const paymentResult = await this.x402PayService.createPaymentRequest({
-        userId: this.userId,
-        amount: amount,
-        currency: currency,
-        recipientEmail: recipientEmail,
-        recipientName: recipientName || '',
-        description: description || 'Payment request from Notion',
-        transactionType: 'ask_payment',
-        scheduleType: 'immediate',
-        aiPrompt: `Processed from Notion entry: ${requestId}`
-      });
-
-      console.log(`💳 [User ${this.userId}] Payment link created for Notion entry: ${paymentResult.x402PayLink}`);
-
-      // Update the Notion entry with the payment link and new status
+      const base = (process.env.BASE_URL || 'http://localhost:3001').replace(/[/]$/, '');
       await this.notion.pages.update({
         page_id: notionPage.id,
-        properties: {
-          'X402Pay Link': {
-            url: paymentResult.x402PayLink
-          },
-          'Status': {
-            select: {
-              name: 'processing'
-            }
-          },
-          'Request ID': {
-            title: [
-              {
-                text: {
-                  content: paymentResult.paymentId
-                }
-              }
-            ]
-          }
-        }
+        properties: { 'X402Pay Link': { url: `${base}/x402pay/${inv.id}` }, Status: { select: { name: 'processing' } } },
       });
-
-      // Send email notification
-      if (this.config.emailUser !== 'test@example.com') {
-        try {
-          const emailContent = this.generateX402PayEmailTemplate({
-            amount: amount,
-            currency: currency,
-            description: description,
-            paymentLink: paymentResult.x402PayLink,
-            recipientName: recipientName,
-            transactionType: 'ask_payment',
-            userConfig: this.userConfig
-          });
-
-          await this.emailTransporter.sendMail({
-            from: this.config.emailFrom,
-            to: recipientEmail,
-            subject: `Payment Request - ${amount} ${currency}`,
-            html: emailContent
-          });
-
-          console.log(`📧 [User ${this.userId}] Email sent for Notion entry: ${recipientEmail}`);
-        } catch (emailError) {
-          console.error(`❌ [User ${this.userId}] Email failed for Notion entry:`, emailError);
-        }
-      }
-
-      console.log(`✅ [User ${this.userId}] Notion entry processed successfully: ${requestId}`);
-
+      console.log(`[User ${this.userId}] Notion entry -> invoice ${inv.number}`);
     } catch (error) {
-      console.error(`❌ [User ${this.userId}] Error processing Notion entry:`, error);
+      console.error(`[User ${this.userId}] Error processing Notion entry:`, error);
     }
   }
 
@@ -1902,45 +1019,6 @@ Continue our conversation naturally, building on what we've already discussed.`;
       });
     } catch (error) {
       console.error(`❌ [User ${this.userId}] Error updating agent status:`, error);
-    }
-  }
-
-  async updateAgentStats() {
-    try {
-      const stats = await this.prisma.transaction.groupBy({
-        by: ['type'],
-        where: { userId: this.userId },
-        _count: { type: true },
-        _sum: { amount: true },
-      });
-
-      const totalSent = stats.find(s => s.type === 'SEND')?._count.type || 0;
-      const totalReceived = stats.find(s => s.type === 'RECEIVE')?._count.type || 0;
-      const totalAmountSent = stats.find(s => s.type === 'SEND')?._sum.amount || 0;
-      const totalAmountReceived = stats.find(s => s.type === 'RECEIVE')?._sum.amount || 0;
-
-      await this.prisma.agent.upsert({
-        where: { userId: this.userId },
-        update: {
-          totalSent,
-          totalReceived,
-          totalAmountSent,
-          totalAmountReceived,
-          totalProcessed: totalSent + totalReceived,
-        },
-        create: {
-          userId: this.userId,
-          name: `${this.config.agentName} - User ${this.userId}`,
-          threadId: `user-${this.userId}-main`,
-          totalSent,
-          totalReceived,
-          totalAmountSent,
-          totalAmountReceived,
-          totalProcessed: totalSent + totalReceived,
-        },
-      });
-    } catch (error) {
-      console.error(`❌ [User ${this.userId}] Error updating agent stats:`, error);
     }
   }
 

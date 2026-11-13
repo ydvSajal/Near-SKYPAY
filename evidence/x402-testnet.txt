@@ -1,0 +1,9 @@
+# SkyPay x402 on NEAR testnet  2026-11-13T06:37:12.481Z  token=skypay-tusdc-eb844b.testnet (TEST token, not real USDC)
+GET http://localhost:3001/x402pay/cmwdz23tc000jli3iqnir5abm -> 402 X-PAYMENT header is required
+  requirements: scheme=exact network=near-testnet payTo=acmestudioc712.skypay-relayer-88e39d.testnet asset=skypay-tusdc-eb844b.testnet amount=10000000 (6 decimals)
+payer skypay-payer-3aea7d.testnet created; minted 10000000 -> https://testnet.nearblocks.io/txns/8PNdtzUnnrC5uLhDT1dRWepeFGRHf8u8uthvVEit71ch
+payer signed one ft_transfer delegate (no gas, no NEAR spent by payer)
+GET http://localhost:3001/x402pay/cmwdz23tc000jli3iqnir5abm + X-PAYMENT -> 200
+  body: {"invoiceId":"cmwdz23tc000jli3iqnir5abm","number":"INV-0002","status":"paid","amount":"10000000","asset":"skypay-tusdc-eb844b.testnet","transaction":"jNukMnZBfbzbZj3T1PXrhred9Dfrr9JDyusMAsGQqzP","txUrl":"https://testnet.nearblocks.io/txns/jNukMnZBfbzbZj3T1PXrhred9Dfrr9JDyusMAsGQqzP","payer":"skypay-payer-3aea7d.testnet"}
+  X-PAYMENT-RESPONSE: {"success":true,"transaction":"jNukMnZBfbzbZj3T1PXrhred9Dfrr9JDyusMAsGQqzP","network":"near-testnet","payer":"skypay-payer-3aea7d.testnet"}
+replay same X-PAYMENT -> 200 alreadyPaid=true

@@ -1,80 +1,24 @@
-"use client"
-
-import { useState } from "react"
 import Link from "next/link"
-import { ArrowRight, CheckCircle, PlayCircle } from "lucide-react"
+import { ArrowRight } from "lucide-react"
+import { Reveal } from "./reveal"
 
 export function CTA() {
-  const [email, setEmail] = useState("")
-  const [subscribed, setSubscribed] = useState(false)
-
-  const handleSubscribe = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!email.trim()) return
-    setSubscribed(true)
-  }
-
   return (
-    <section className="relative overflow-hidden bg-white px-4 py-14 md:px-6 md:py-20">
-      
-
-      <div className="relative z-10 mx-auto max-w-[700px] text-center">
-        <h2 className="mb-5 font-sans text-[clamp(24px,8vw,34px)] font-bold leading-[1.15] tracking-tight text-[#0f0f0f] md:text-[clamp(28px,4vw,52px)]">
-          Ready to automate your crypto payments?
-        </h2>
-        <p className="mb-7 text-[15px] leading-[1.7] text-gray-600 md:mb-10 md:text-[17px]">
-          Connect your Notion workspace and let SKYPay&apos;s AI agent handle all
-          your payment operations automatically.
-        </p>
-
-        <div className="mb-8 flex flex-wrap justify-center gap-3">
-          <Link
-            href="/auth/login"
-            className="inline-flex items-center gap-2 rounded-full bg-[#0f0f0f] px-[18px] py-[11px] text-[13px] font-semibold text-white shadow-sm transition-transform  md:px-7 md:py-3.5 md:text-[15px]"
-          >
-            Start Your Agent Free
-            <ArrowRight size={16} />
+    <section className="px-5 pb-24 md:px-8 md:pb-32">
+      <Reveal className="mx-auto flex max-w-[1200px] flex-col items-start justify-between gap-8 rounded-xl bg-primary px-8 py-12 text-primary-foreground md:flex-row md:items-center md:px-12 md:py-14">
+        <div>
+          <h2 className="text-3xl font-semibold tracking-[-0.025em] md:text-4xl">Send your first invoice today.</h2>
+          <p className="mt-3 max-w-md leading-relaxed text-primary-foreground/80">Account, Notion and a sponsored NEAR account take about two minutes.</p>
+        </div>
+        <div className="flex flex-wrap gap-3">
+          <Link href="/auth/login" className="press inline-flex h-12 items-center gap-2 rounded-lg bg-primary-foreground px-5 text-sm font-semibold text-primary hover:bg-primary-foreground/90">
+            Get started <ArrowRight className="h-4 w-4" />
           </Link>
-          <Link
-            href="/docs#how-it-works"
-            className="inline-flex items-center gap-2 rounded-full border border-black/10 px-[18px] py-[11px] text-[13px] font-medium text-gray-800 transition-colors hover:bg-black/5 md:px-7 md:py-3.5 md:text-[15px]"
-          >
-            <PlayCircle size={16} />
-            Watch Agent Demo
+          <Link href="/docs" className="press inline-flex h-12 items-center rounded-lg border border-primary-foreground/30 px-5 text-sm font-medium text-primary-foreground hover:bg-primary-foreground/10">
+            Read the docs
           </Link>
         </div>
-
-        {subscribed ? (
-          <p className="inline-flex items-center gap-2 rounded-full bg-emerald-500/10 px-5 py-3 text-sm font-medium text-emerald-700">
-            <CheckCircle size={16} />
-            You&apos;re on the list — we&apos;ll keep you posted.
-          </p>
-        ) : (
-          <form
-            onSubmit={handleSubscribe}
-            className="flex flex-wrap items-center justify-center gap-2.5"
-          >
-            <label htmlFor="cta-email" className="sr-only">
-              Email address
-            </label>
-            <input
-              id="cta-email"
-              type="email"
-              required
-              placeholder="Enter your email for agent updates"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-full border border-black/10 bg-white px-5 py-3 text-sm outline-none transition-colors focus:border-slate-200 sm:w-[260px]"
-            />
-            <button
-              type="submit"
-              className="rounded-full bg-primary px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-primary"
-            >
-              Get Agent Updates
-            </button>
-          </form>
-        )}
-      </div>
+      </Reveal>
     </section>
   )
 }

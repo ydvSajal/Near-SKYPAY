@@ -44,6 +44,24 @@ const NEAR = 10n ** 24n;
 const fmt = (y) => (Number(y / 10n ** 21n) / 1000).toFixed(3);
 
 let bal = await balance(near.relayerId);
+
+// Prefer a NAMED sponsor (the public faucet only accepts named accounts, so it can be topped up later).
+// Same key, new name; the implicit id is kept only as a fallback when the helper is rate-limited.
+if (/^[0-9a-f]{64}$/.test(near.relayerId) && bal === 0n) {
+  const named = `skypay-sponsor-${crypto.randomBytes(3).toString('hex')}.testnet`;
+  try {
+    const pub = KeyPair.fromString(process.env.NEAR_RELAYER_KEY).getPublicKey().toString();
+    await near.helperCreate(named, pub);
+    fs.writeFileSync(nearEnv, fs.readFileSync(nearEnv, 'utf8').replace(/^NEAR_RELAYER_ACCOUNT=.*$/m, `NEAR_RELAYER_ACCOUNT=${named}`));
+    process.env.NEAR_RELAYER_ACCOUNT = named;
+    near.relayerId = named;
+    bal = await balance(named);
+    console.log(`named sponsor created: ${named}`);
+  } catch (e) {
+    console.log(`named sponsor not created yet (${e.message}).`);
+  }
+}
+
 if (bal < 5n * NEAR) {
   try {
     const kp = KeyPair.fromRandom('ed25519');

@@ -14,9 +14,9 @@ const TOKEN_KEY = "adminToken"
 
 type User = {
   id: string; email: string; name: string | null
-  walletAddress: string | null; externalWalletAddress: string | null
+  nearAccountId: string | null
   notionWorkspaceId: string | null; createdAt: string
-  _count: { transactions: number; paymentRequests: number }
+  _count: { invoices: number; paymentAttempts: number }
 }
 type ConfigEntry = { id: string; key: string; value: string; description: string | null; updatedAt: string }
 type Admin = { id: string; email: string; createdAt: string }
@@ -167,16 +167,16 @@ function UsersPanel() {
         <table className="w-full text-sm">
           <thead><tr className="border-b text-left text-slate-500">
             <th className="py-2 pr-4">Email</th><th className="py-2 pr-4">Name</th>
-            <th className="py-2 pr-4">Wallet</th><th className="py-2 pr-4">Txns</th>
+            <th className="py-2 pr-4">NEAR account</th><th className="py-2 pr-4">Invoices</th>
             <th className="py-2 pr-4">Joined</th><th></th>
           </tr></thead>
           <tbody>
             {items.map((u) => (
               <tr key={u.id} className="border-b">
                 <td className="py-2 pr-4">{u.email}</td>
-                <td className="py-2 pr-4">{u.name || "—"}</td>
-                <td className="py-2 pr-4 font-mono text-xs">{(u.walletAddress || u.externalWalletAddress || "—").slice(0, 10)}</td>
-                <td className="py-2 pr-4">{u._count.transactions}</td>
+                <td className="py-2 pr-4">{u.name || "None"}</td>
+                <td className="py-2 pr-4 font-mono text-xs">{u.nearAccountId || "None"}</td>
+                <td className="py-2 pr-4">{u._count.invoices}</td>
                 <td className="py-2 pr-4">{new Date(u.createdAt).toLocaleDateString()}</td>
                 <td className="py-2"><Button variant="ghost" size="sm" onClick={() => del(u.id, u.email)}><Trash2 className="h-4 w-4 text-red-600" /></Button></td>
               </tr>
@@ -230,7 +230,7 @@ function ConfigPanel() {
               <tr key={c.id} className="border-b">
                 <td className="py-2 pr-4 font-mono text-xs">{c.key}</td>
                 <td className="py-2 pr-4 font-mono text-xs break-all">{c.value}</td>
-                <td className="py-2 pr-4 text-slate-500">{c.description || "—"}</td>
+                <td className="py-2 pr-4 text-slate-500">{c.description || "None"}</td>
                 <td className="py-2"><Button variant="ghost" size="sm" onClick={() => del(c.key)}><Trash2 className="h-4 w-4 text-red-600" /></Button></td>
               </tr>
             ))}

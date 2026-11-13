@@ -9,10 +9,14 @@ Evidence files:
 * `evidence/contract-tests.txt` — `cargo test` output (19 unit + 1 sandbox scenario)
 * `evidence/near-testnet-e2e.txt` — vault lifecycle on testnet, including refusals (12 Nov 2026 UTC)
 * `evidence/api-smoke-testnet.txt` — full HTTP flow against the running backend on testnet
-* `npm test` in `agenPay/agenpay-backend` — 6 node:test suites
+* `evidence/x402-testnet.txt` — x402 pay link paid by a gasless payer on testnet, then replayed (13 Nov 2026 UTC)
+* `evidence/agent-smoke-testnet.txt` — agent creates an invoice, pays an allowed payee, refuses a chat-supplied address and an over-limit payment
+* `npm test` in `agenPay/agenpay-backend` — 9 node:test cases (money, guards, x402)
 
-> The testnet transcripts were produced by an earlier sponsor account (`skypay-relayer-88e39d.testnet`) whose key was
-> later lost locally; the on-chain transactions remain verifiable through the explorer links. New runs use a new sponsor.
+> `near-testnet-e2e.txt`, `api-smoke-testnet.txt` and `agent-smoke-testnet.txt` were re-run on 13 Nov 2026 with the
+> current sponsor (`skypay-sponsor-f97ec0.testnet`, top-level account names). `x402-testnet.txt` pays an invoice owned by
+> an account under the earlier sponsor (`skypay-relayer-88e39d.testnet`), whose key was later lost locally; its
+> on-chain transactions remain verifiable through the explorer links.
 
 ## Feature matrix
 
@@ -40,7 +44,9 @@ Evidence files:
 | Duplicate jobs do not send duplicate emails | `Outbox.enqueue` unique idempotency key | outbox table | implemented |
 | Accountant CSV: UTC, fixed decimals, tx links, formula injection neutralised | `csvExport.js` | `npm test` A23/A24; api-smoke 20-21 | unit + testnet |
 | Companies cannot read each other's records | all private queries filter by `req.user.id` | api-smoke 22 | testnet |
-| Agent never takes payout addresses from chat/email; only owner-registered payees | `AgentPayAgent.buildSkyPayTools`, `SkyPay.findPayee` | `scripts/agent-smoke.mjs` (needs LLM key) | implemented |
+| Agent never takes payout addresses from chat/email; only owner-registered payees | `AgentPayAgent.buildSkyPayTools`, `SkyPay.findPayee` | `scripts/agent-smoke.mjs` (needs LLM key); `evidence/agent-smoke-testnet.txt` | testnet |
+| x402 pay link: HTTP 402 with exact NEAR requirements; payer signs one gasless `ft_transfer` delegate; self-hosted facilitator verifies and settles | `lib/x402.js` | `npm test` x402; `scripts/x402-pay.mjs`; `evidence/x402-testnet.txt` | unit + testnet |
+| Facilitator relays only an exact-shape `ft_transfer` to the invoice receiver; replay returns the existing receipt | `lib/x402.js` payment-delegate guard | `npm test` x402; replay step in `evidence/x402-testnet.txt` | unit + testnet |
 | Unknown outcomes are reconciled from chain, not resent | `SkyPay.reconcile` | code review | implemented, not exercised live |
 | Pay from another chain via NEAR Intents (1Click) | — | — | **not built** |
 | Real USDC | — | — | **not built** (test token on testnet) |

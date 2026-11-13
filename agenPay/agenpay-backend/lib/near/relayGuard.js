@@ -77,3 +77,26 @@ export function makeRateLimiter(max, windowMs) {
     return true;
   };
 }
+
+/**
+ * x402 payment delegate: the PAYER signs one NEP-141 `ft_transfer` of the pinned token to the merchant; the sponsor
+ * only submits it (pays gas). Same style as checkDelegate: pure, no network.
+ * @param ctx { token, payTo, minAmount, currentBlockHeight }
+ */
+export function checkPaymentDelegate(d, ctx) {
+  const fail = (reason) => ({ ok: false, reason });
+  if (d.receiverId !== ctx.token) return fail('payment must be a transfer of the invoice token');
+  if (d.actions.length !== 1) return fail('exactly one action per payment');
+  const a = d.actions[0];
+  if (a.kind !== 'functionCall') return fail('only function calls can be sponsored');
+  if (a.methodName !== 'ft_transfer') return fail(`token method not sponsored for payments: ${a.methodName}`);
+  if (a.deposit !== ONE_YOCTO) return fail('ft_transfer requires exactly 1 yoctoNEAR');
+  if (a.gas > MAX_GAS) return fail('gas above sponsor cap');
+  if (!a.args) return fail('arguments must be JSON');
+  if (a.args.receiver_id !== ctx.payTo) return fail('transfer must go to the invoice receiver');
+  if (!/^[1-9]\d*$/.test(String(a.args.amount))) return fail('invalid amount');
+  if (BigInt(a.args.amount) < BigInt(ctx.minAmount)) return fail('amount below invoice total');
+  if (d.maxBlockHeight <= BigInt(ctx.currentBlockHeight)) return fail('delegate action expired');
+  if (d.maxBlockHeight - BigInt(ctx.currentBlockHeight) > 2000n) return fail('expiry too far in the future');
+  return { ok: true };
+}

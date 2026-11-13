@@ -3,16 +3,7 @@ export interface User {
   email: string
   name: string
   hasNotionIntegration?: boolean
-  hasWallet?: boolean
-  externalWalletAddress?: string | null
-  walletProvider?: string | null
-}
-
-export interface NonceResponse {
-  success: boolean
-  nonce?: string
-  message?: string
-  error?: string
+  hasNearAccount?: boolean
 }
 
 export interface AuthResponse {
@@ -260,125 +251,12 @@ class AuthService {
     }
   }
 
-  async checkNotionIntegration(): Promise<ApiResponse> {
+  /** Current user, used to restore the session on page load. */
+  async getMe(): Promise<ApiResponse<{ user: User }>> {
     try {
-      // Check if Notion integration is complete by fetching dashboard
-      const response = await this.request<ApiResponse>('/api/dashboard')
-      return response
+      return await this.request<ApiResponse<{ user: User }>>('/api/me')
     } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to check Notion integration',
-      }
-    }
-  }
-
-  // Legacy method for backwards compatibility
-  async connectNotion(notionApiKey: string): Promise<ApiResponse> {
-    try {
-      const response = await this.request<ApiResponse>('/api/notion/login', {
-        method: 'POST',
-        body: JSON.stringify({ notionApiKey }),
-      })
-
-      return response
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Notion connection failed',
-      }
-    }
-  }
-
-  async createWallet(): Promise<ApiResponse> {
-    try {
-      const response = await this.request<ApiResponse>('/api/wallet/create', {
-        method: 'POST',
-      })
-
-      return response
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Wallet creation failed',
-      }
-    }
-  }
-
-  async getWallet(): Promise<ApiResponse> {
-    try {
-      const response = await this.request<ApiResponse>('/api/wallet')
-      return response
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to get wallet',
-      }
-    }
-  }
-
-  async requestFaucet(): Promise<ApiResponse> {
-    try {
-      const response = await this.request<ApiResponse>('/api/wallet/faucet', {
-        method: 'POST',
-      })
-
-      return response
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Faucet request failed',
-      }
-    }
-  }
-
-  async getWalletNonce(): Promise<NonceResponse> {
-    try {
-      return await this.request<NonceResponse>('/api/wallet/connect/nonce')
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to get nonce',
-      }
-    }
-  }
-
-  async verifyWalletConnection(address: string, signature: string, provider?: string): Promise<ApiResponse> {
-    try {
-      return await this.request<ApiResponse>('/api/wallet/connect/verify', {
-        method: 'POST',
-        body: JSON.stringify({ address, signature, provider }),
-      })
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Wallet verification failed',
-      }
-    }
-  }
-
-  async disconnectExternalWallet(): Promise<ApiResponse> {
-    try {
-      return await this.request<ApiResponse>('/api/wallet/disconnect', {
-        method: 'POST',
-      })
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to disconnect wallet',
-      }
-    }
-  }
-
-  async getDashboard(): Promise<ApiResponse> {
-    try {
-      const response = await this.request<ApiResponse>('/api/dashboard')
-      return response
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to get dashboard data',
-      }
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to load user' }
     }
   }
 
@@ -425,51 +303,6 @@ class AuthService {
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Payment processing failed',
-      }
-    }
-  }
-
-  async getAgentStatus(): Promise<ApiResponse> {
-    try {
-      const response = await this.request<ApiResponse>('/api/agent/status')
-      return response
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to get agent status',
-      }
-    }
-  }
-
-  async getTransactions(limit: number = 20, type?: string, status?: string): Promise<ApiResponse> {
-    try {
-      const params = new URLSearchParams()
-      params.append('limit', limit.toString())
-      if (type) params.append('type', type)
-      if (status) params.append('status', status)
-
-      const response = await this.request<ApiResponse>(`/api/transactions?${params}`)
-      return response
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to get transactions',
-      }
-    }
-  }
-
-  async sendCrypto(toAddress: string, amount: string, currency: string = 'ETH'): Promise<ApiResponse> {
-    try {
-      const response = await this.request<ApiResponse>('/api/wallet/send', {
-        method: 'POST',
-        body: JSON.stringify({ toAddress, amount, currency }),
-      })
-
-      return response
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to send crypto',
       }
     }
   }

@@ -1,74 +1,61 @@
-import { Bot, Database, Zap } from "lucide-react"
-import { Reveal } from "./reveal"
+"use client"
+
+import { useRef } from "react"
+import { Database, FileText, ShieldCheck } from "lucide-react"
+import { gsap, useGSAP, prefersReducedMotion } from "@/lib/gsap"
 
 const steps = [
-  {
-    num: "01",
-    Icon: Database,
-    iconClass: "text-slate-600",
-    title: "Connect Notion",
-    desc: "Link your existing Notion database or use our template. Your payment data stays in Notion where you already work.",
-  },
-  {
-    num: "02",
-    Icon: Bot,
-    iconClass: "text-slate-600",
-    title: "Agent Activates",
-    desc: "SKYPay AI monitors your Notion database 24/7, automatically creating invoices, scheduling payments, and handling follow-ups.",
-  },
-  {
-    num: "03",
-    Icon: Zap,
-    iconClass: "text-slate-600",
-    title: "Payments Flow",
-    desc: "X402Pay processes all crypto transactions while your agent handles scheduling, reminders, refunds, and updates your Notion automatically.",
-  },
+  { Icon: Database, title: "Connect", desc: "Link Notion. SKYPay adds a payments database and watches it for new rows." },
+  { Icon: FileText, title: "Invoice", desc: "Each row or chat request becomes a NEAR invoice with a checkout page and an x402 pay link." },
+  { Icon: ShieldCheck, title: "Settle", desc: "Paid only after the transfer is verified on chain. Notion and your CSV exports update." },
 ]
 
 export function HowItWorks() {
+  const root = useRef<HTMLElement>(null)
+
+  useGSAP(
+    () => {
+      if (prefersReducedMotion()) return
+      // The rail fills as the reader moves through the steps: the flow is the story.
+      gsap.fromTo("[data-rail]", { scaleX: 0 }, {
+        scaleX: 1, ease: "none",
+        scrollTrigger: { trigger: "[data-steps]", start: "top 75%", end: "bottom 55%", scrub: 0.6 },
+      })
+      gsap.from("[data-step]", {
+        opacity: 0, y: 20, duration: 0.7, ease: "power3.out", stagger: 0.12,
+        scrollTrigger: { trigger: "[data-steps]", start: "top 80%", once: true },
+      })
+    },
+    { scope: root },
+  )
+
   return (
-    <>
-      {/* Divider label */}
-      <div className="border-t border-black/5 px-4 pb-10 pt-7 text-center">
-        <span className="text-[11px] uppercase tracking-[0.2em] text-gray-400">
-          Built on sovereign infrastructure • Powered by X402Pay
-        </span>
-      </div>
-
-      <section className="bg-white px-4 py-14 md:px-6 md:py-20">
-        <div className="mx-auto max-w-[1200px]">
-          <Reveal className="mb-10 text-center md:mb-14">
-            <h2 className="mb-4 font-sans text-[clamp(24px,8vw,32px)] font-bold leading-tight tracking-tight text-[#0f0f0f] md:text-[clamp(28px,4vw,48px)]">
-              Connect your workspace.
-              <br />
-              Put payments in motion.
-            </h2>
-            <p className="mx-auto max-w-[520px] text-[15px] leading-[1.7] text-gray-600 md:text-base">
-              Connect your Notion workspace and let SKYPay&apos;s AI agent automate
-              your entire crypto payment workflow.
-            </p>
-          </Reveal>
-
-          <div className="grid gap-3.5 md:grid-cols-3 md:gap-6">
-            {steps.map(({ num, Icon, iconClass, title, desc }, i) => (
-              <Reveal key={num} delay={i * 90}>
-                <div className="h-full rounded-lg border border-black/5 bg-slate-50 p-6 text-center transition-all duration-200  hover:shadow-sm md:px-7 md:py-9">
-                  <div
-                    className={`mx-auto mb-5 flex h-[60px] w-[60px] items-center justify-center rounded-2xl ${iconClass}`}
-                  >
-                    <Icon size={28} />
-                  </div>
-                  <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.1em] text-gray-400">
-                    {num}
-                  </p>
-                  <h3 className="mb-3 text-lg font-bold text-[#0f0f0f]">{title}</h3>
-                  <p className="text-sm leading-[1.7] text-gray-600">{desc}</p>
-                </div>
-              </Reveal>
-            ))}
-          </div>
+    <section ref={root} id="how-it-works" className="border-t border-border px-5 py-24 md:px-8 md:py-32">
+      <div className="mx-auto max-w-[1200px]">
+        <div className="max-w-2xl">
+          <h2 className="text-3xl font-semibold tracking-[-0.025em] md:text-5xl">From one sentence to a settled invoice.</h2>
+          <blockquote className="mt-8 border-l-2 border-primary pl-5 text-lg leading-relaxed text-foreground">
+            &ldquo;Invoice Harbor &amp; Pine 150 USDC for the brand refresh, due Friday.&rdquo;
+          </blockquote>
         </div>
-      </section>
-    </>
+
+        <div data-steps className="relative mt-16">
+          <div aria-hidden className="absolute left-0 right-0 top-5 hidden h-px bg-border md:block">
+            <div data-rail className="h-full origin-left bg-primary" />
+          </div>
+          <ol className="grid gap-10 md:grid-cols-3 md:gap-8">
+            {steps.map(({ Icon, title, desc }) => (
+              <li key={title} data-step className="relative">
+                <span className="relative z-10 flex h-10 w-10 items-center justify-center rounded-full border border-border bg-background text-primary">
+                  <Icon className="h-[18px] w-[18px]" strokeWidth={1.75} />
+                </span>
+                <h3 className="mt-5 text-xl font-semibold tracking-[-0.01em]">{title}</h3>
+                <p className="mt-2 max-w-[34ch] leading-relaxed text-muted-foreground">{desc}</p>
+              </li>
+            ))}
+          </ol>
+        </div>
+      </div>
+    </section>
   )
 }

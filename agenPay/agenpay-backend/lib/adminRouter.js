@@ -73,9 +73,8 @@ router.get('/users', authenticateAdmin, async (req, res) => {
     const users = await prisma.user.findMany({
       orderBy: { createdAt: 'desc' },
       select: {
-        id: true, email: true, name: true, walletAddress: true,
-        externalWalletAddress: true, notionWorkspaceId: true, createdAt: true,
-        _count: { select: { transactions: true, paymentRequests: true } },
+        id: true, email: true, name: true, nearAccountId: true, notionWorkspaceId: true, createdAt: true,
+        _count: { select: { invoices: true, paymentAttempts: true } },
       },
     });
     res.json({ success: true, users });
