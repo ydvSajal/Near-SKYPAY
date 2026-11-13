@@ -204,8 +204,9 @@ export class AgenPayAgent {
 
       // Setup Notion client (if user has API key)
       if (this.userConfig.notionApiKey) {
+        // native fetch: node-fetch v2 (default) fails with "Premature close" on gzip under newer Node
         this.notion = new Client({
-          auth: this.userConfig.notionApiKey,
+          auth: this.userConfig.notionApiKey, fetch: globalThis.fetch,
         });
         console.log(`📚 [User ${this.userId}] Notion client initialized`);
       } else {

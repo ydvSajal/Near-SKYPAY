@@ -160,6 +160,12 @@ app.get('/api/workspace-status/:userId', authenticateToken, async (req, res) => 
     // Check if workspace is fully set up
     const workspaceReady = !!user.notionWorkspaceId && !!user.notionApiKey;
 
+    // self-heal: token saved but workspace never built (e.g. earlier setup failed) -> queue one setup unless one is active
+    if (user.notionApiKey && !user.notionWorkspaceId) {
+      const active = await prisma.outboxJob.findFirst({ where: { userId, kind: 'notion_setup', status: { in: ['pending', 'running'] } } });
+      if (!active) await outbox.enqueue(userId, 'notion_setup', `notion_setup:${userId}:${Date.now()}`, { userId });
+    }
+
     res.json({
       success: true,
       workspaceReady,
@@ -335,17 +341,9 @@ app.get('/api/notion/callback', async (req, res) => {
     console.log(`🔀 Step 3: Redirecting to loading page with auth token`);
     res.redirect(loadingUrl);
 
-    // Step 4: Complete workspace setup in background (non-blocking)
-    setImmediate(async () => {
-      try {
-        console.log('🏗️ Step 4: Starting background workspace setup...');
-        const notionService = new NotionService(oauthResult.accessToken);
-        await notionService.completeIntegration(oauthResult.userId, oauthResult.accessToken);
-        console.log(`✅ Step 4 complete: Workspace setup done for user ${oauthResult.userId}`);
-      } catch (setupError) {
-        console.error(`⚠️ Step 4 FAILED (non-critical):`, setupError.message);
-      }
-    });
+    // Step 4: workspace setup runs as a durable outbox job (retried with backoff), not a one-shot
+    await outbox.enqueue(oauthResult.userId, 'notion_setup', `notion_setup:${oauthResult.userId}:${Date.now()}`, { userId: oauthResult.userId });
+    console.log('🏗️ Step 4: Notion workspace setup queued');
   } catch (error) {
     console.error('❌ Notion OAuth callback UNEXPECTED error:', error);
     if (!res.headersSent) {

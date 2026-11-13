@@ -67,7 +67,19 @@ export class Outbox {
     return jobs.length;
   }
 
+  /** Create the Notion workspace, then backfill existing invoices. Retried by the outbox (backoff, 6 attempts).
+   *  ponytail: a retry after a half-finished setup can leave a duplicate "SkyPay Workspace" page in Notion. */
+  async notionSetup(userId) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user?.notionApiKey) return 'skipped';
+    if (!user.notionWorkspaceId) await new NotionService(user.notionApiKey).completeIntegration(userId, user.notionApiKey);
+    const invoices = await this.prisma.invoice.findMany({ where: { userId }, select: { id: true } });
+    for (const { id } of invoices) await this.enqueue(userId, 'notion_invoice', `notion_invoice:${id}:backfill`, { invoiceId: id });
+    return 'live';
+  }
+
   async handle(job) {
+    if (job.kind === 'notion_setup') return this.notionSetup(job.userId);
     const invoice = await this.prisma.invoice.findUnique({ where: { id: job.payload.invoiceId }, include: { user: true } });
     if (!invoice) throw new Error('invoice missing');
     if (job.kind === 'invoice_email') return this.sendMail(invoice.customerEmail, ...this.invoiceMail(invoice));
@@ -95,26 +107,56 @@ export class Outbox {
     return `${formatUnits(v, invoice.decimals)} ${invoice.asset}`;
   }
 
+  /** One inline-styled 600px layout (renders in Gmail/Outlook, no images). All dynamic text must already be escaped. */
+  layout(title, body, footer) {
+    return `<!doctype html><html><body style="margin:0;background:#f4f5f7;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#1a1a1a">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:24px 12px">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#fff;border:1px solid #e3e5e8;border-radius:10px">
+<tr><td style="padding:20px 28px;border-bottom:1px solid #e3e5e8;font-size:18px;font-weight:700">SkyPay</td></tr>
+<tr><td style="padding:28px"><h1 style="margin:0 0 16px;font-size:20px">${title}</h1>${body}</td></tr>
+<tr><td style="padding:16px 28px;border-top:1px solid #e3e5e8;font-size:12px;color:#6b7280;line-height:1.5">${footer}</td></tr>
+</table></td></tr></table></body></html>`;
+  }
+
+  button(href, label) {
+    return `<p style="margin:24px 0"><a href="${href}" style="background:#1d4ed8;color:#fff;text-decoration:none;padding:12px 22px;border-radius:8px;font-weight:600;display:inline-block">${label}</a></p>`;
+  }
+
+  footer(i) {
+    const test = this.env.NEAR_USDC_IS_TEST_TOKEN === 'true' ? ' This is a testnet invoice paid with a test token that has no monetary value.' : '';
+    return `Settles in ${esc(i.asset)} on NEAR (${esc(i.network)}).${test} SkyPay will never ask you to change a payout address by email.`;
+  }
+
   invoiceMail(i) {
-    const company = esc(i.user.name || i.user.email);
-    return [
-      `Invoice ${i.number} from ${i.user.name || i.user.email}: ${this.money(i)} due ${i.dueDate.toISOString().slice(0, 10)}`,
-      `<p>${company} sent you invoice <b>${esc(i.number)}</b> for <b>${esc(this.money(i))}</b>, due ${i.dueDate.toISOString().slice(0, 10)}.</p>
-       <p>${esc(i.description || '')}</p>
-       <p><a href="${this.link(i)}">View and pay the invoice</a></p>
-       <p style="color:#666;font-size:12px">Settles in ${esc(i.asset)} on NEAR (${esc(i.network)}). SkyPay will never ask you to change a payout address by email.</p>`,
-    ];
+    const merchant = i.user.name || i.user.email;
+    const due = i.dueDate.toISOString().slice(0, 10);
+    const cell = 'padding:8px 0;border-bottom:1px solid #eef0f2;font-size:14px';
+    const rows = (Array.isArray(i.lineItems) ? i.lineItems : []).map((li) => `<tr>
+      <td style="${cell}">${esc(li.description)}</td><td style="${cell};text-align:right">${esc(li.quantity)}</td>
+      <td style="${cell};text-align:right">${esc(formatUnits(li.unitAmount, i.decimals))}</td>
+      <td style="${cell};text-align:right">${esc(formatUnits((BigInt(li.unitAmount) * BigInt(li.quantity)).toString(), i.decimals))}</td></tr>`).join('');
+    const body = `<p style="margin:0 0 4px;color:#6b7280;font-size:13px">Invoice ${esc(i.number)} from</p>
+      <p style="margin:0 0 16px;font-size:16px;font-weight:600">${esc(merchant)}</p>
+      ${i.description ? `<p style="margin:0 0 16px;font-size:14px">${esc(i.description)}</p>` : ''}
+      <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse"><tr style="font-size:12px;color:#6b7280;text-align:left">
+        <th style="padding:6px 0">Item</th><th style="text-align:right">Qty</th><th style="text-align:right">Unit</th><th style="text-align:right">Amount</th></tr>${rows}</table>
+      <p style="margin:16px 0 0;text-align:right;font-size:13px;color:#6b7280">Total due</p>
+      <p style="margin:0;text-align:right;font-size:26px;font-weight:700">${esc(this.money(i))}</p>
+      <p style="margin:8px 0 0;text-align:right;font-size:13px;color:#6b7280">Due ${due}</p>
+      ${this.button(this.link(i), 'Pay invoice')}
+      <p style="margin:0;font-size:12px;color:#6b7280">Button not working? Open ${esc(this.link(i))}</p>`;
+    return [`Invoice ${i.number} from ${merchant}: ${this.money(i)} due ${due}`, this.layout(`Invoice ${esc(i.number)}`, body, this.footer(i))];
   }
 
   receiptMail(i) {
     const url = this.near.explorerTx(i.settledTxHash);
-    return [
-      `Receipt: invoice ${i.number} paid (${this.money(i, i.settledAmount)})`,
-      `<p>Payment received for invoice <b>${esc(i.number)}</b>.</p>
-       <p>Amount: <b>${esc(this.money(i, i.settledAmount))}</b><br>Settled: ${i.settledAt.toISOString()}<br>
-       Transaction: <a href="${url}">${esc(i.settledTxHash)}</a></p>
-       <p><a href="${this.link(i)}">Invoice ${esc(i.number)}</a></p>`,
-    ];
+    const body = `<p style="margin:0 0 16px;font-size:14px">Payment received for invoice <b>${esc(i.number)}</b>. Thank you.</p>
+      <table cellpadding="0" cellspacing="0" style="font-size:14px;line-height:1.8">
+        <tr><td style="color:#6b7280;padding-right:16px">Amount</td><td><b>${esc(this.money(i, i.settledAmount))}</b></td></tr>
+        <tr><td style="color:#6b7280;padding-right:16px">Settled</td><td>${i.settledAt.toISOString().replace('T', ' ').slice(0, 19)} UTC</td></tr>
+        <tr><td style="color:#6b7280;padding-right:16px">Transaction</td><td><a href="${url}" style="word-break:break-all">${esc(i.settledTxHash)}</a></td></tr></table>
+      ${this.button(this.link(i), 'View invoice')}`;
+    return [`Receipt: invoice ${i.number} paid (${this.money(i, i.settledAmount)})`, this.layout('Payment received', body, this.footer(i))];
   }
 
   /** Upsert the invoice row in the company's Notion (keyed by invoice id). Notion is a view, never the ledger. */

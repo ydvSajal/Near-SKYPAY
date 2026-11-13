@@ -93,7 +93,7 @@ npm ci
 cp .env.example .env            # set DATABASE_URL=postgresql://postgres:skypay@localhost:5434/skypay and JWT_SECRET
 npx prisma db push
 npm run near:bootstrap          # creates the testnet sponsor + test token; writes secrets to .env.near (gitignored)
-npm test                        # expect: 12 pass, 0 fail
+npm test                        # expect: 14 pass, 0 fail
 node server.js                  # expect: "NEAR testnet: token ..., relayer ..."
 ```
 
@@ -118,7 +118,9 @@ npm run build && npx next start -p 3000
 3. Click **Owner key backup** and keep the file. (The key exists only in this browser.)
 4. Create an invoice: client email, one line item `Design sprint · 1 · 10`, click **Create & email invoice**.
    → **See:** `INV-0001 … pending`; the backend log shows the invoice email (fixture mode if no SMTP).
-5. Open the invoice link in a private window. Click **Pay with testnet demo wallet**.
+5. Open the invoice link in a private window. Click **Connect wallet & pay**, pick MyNearWallet or Meteor, approve one
+   transfer (on testnet it first mints you test tUSDC) — the page verifies it and flips to paid by itself.
+   No testnet wallet? Use **Pay with testnet demo wallet** instead.
    → **See:** "Payment verified on NEAR" with the transaction hash; status is **paid** in Finance; a receipt job runs.
    (Before paying, the **Pay from another chain** panel can fetch a live NEAR Intents quote: pick e.g. *USDC on base*,
    enter a refund address on that chain, click **Get quote** → amount to send, provider fee, ETA and expiry. Quote only.)

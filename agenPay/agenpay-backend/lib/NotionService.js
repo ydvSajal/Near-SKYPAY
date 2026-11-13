@@ -1,5 +1,5 @@
 /**
- * Notion Service for AgenPay
+ * Notion Service for SkyPay
  * Handles workspace setup, database creation, and OAuth management
  */
 
@@ -9,7 +9,7 @@ import jwt from 'jsonwebtoken';
 
 export class NotionService {
   constructor(notionApiKey = null) {
-    this.notion = notionApiKey ? new Client({ auth: notionApiKey }) : null;
+    this.notion = notionApiKey ? new Client({ auth: notionApiKey, fetch: globalThis.fetch }) : null;
     this.prisma = new PrismaClient();
   }
 
@@ -107,7 +107,7 @@ export class NotionService {
   async completeIntegration(userId, accessToken) {
     try {
       // Initialize client with new token
-      this.notion = new Client({ auth: accessToken });
+      this.notion = new Client({ auth: accessToken, fetch: globalThis.fetch });
 
       // Test connection
       const connectionTest = await this.testConnection();
@@ -146,7 +146,7 @@ export class NotionService {
    */
   async setupUserWorkspace(userId, notionApiKey) {
     try {
-      console.log(`🗃️ Setting up AgenPay workspace for user ${userId}`);
+      console.log(`🗃️ Setting up SkyPay workspace for user ${userId}`);
       
       // Create main workspace page
       const workspacePage = await this.createWorkspacePage();
@@ -173,21 +173,21 @@ export class NotionService {
         {
           userId,
           databaseId: incomingPaymentsDb.id,
-          databaseName: 'AgenPay Incoming Payments',
+          databaseName: 'SkyPay Incoming Payments',
           databaseType: 'INCOMING_PAYMENTS',
           properties: JSON.stringify(incomingPaymentsDb.properties),
         },
         {
           userId,
           databaseId: outgoingPaymentsDb.id,
-          databaseName: 'AgenPay Outgoing Payments',
+          databaseName: 'SkyPay Outgoing Payments',
           databaseType: 'OUTGOING_PAYMENTS',
           properties: JSON.stringify(outgoingPaymentsDb.properties),
         },
         {
           userId,
           databaseId: transactionsDb.id,
-          databaseName: 'AgenPay Transactions',
+          databaseName: 'SkyPay Transactions',
           databaseType: 'TRANSACTIONS',
           properties: JSON.stringify(transactionsDb.properties),
         },
@@ -202,7 +202,7 @@ export class NotionService {
         });
       }
       
-      console.log(`✅ AgenPay workspace setup completed for user ${userId}`);
+      console.log(`✅ SkyPay workspace setup completed for user ${userId}`);
       
       return {
         success: true,
@@ -242,7 +242,7 @@ export class NotionService {
 
         // Find the first page that we can actually access
         let parentPage = pages.results[0];
-        console.log(`📍 Creating AgenPay workspace inside: "${parentPage.properties?.title?.title?.[0]?.plain_text || 'Untitled'}" (${parentPage.id})`);
+        console.log(`📍 Creating SkyPay workspace inside: "${parentPage.properties?.title?.title?.[0]?.plain_text || 'Untitled'}" (${parentPage.id})`);
 
         workspacePage = await this.notion.pages.create({
           parent: {
@@ -256,7 +256,7 @@ export class NotionService {
                 {
                   type: 'text',
                   text: {
-                    content: 'AgenPay Workspace',
+                    content: 'SkyPay Workspace',
                   },
                 },
               ],
@@ -269,7 +269,7 @@ export class NotionService {
         throw error;
       }
 
-      console.log('✅ AgenPay workspace page created:', workspacePage.id);
+      console.log('✅ SkyPay workspace page created:', workspacePage.id);
       return workspacePage;
     } catch (error) {
       console.error('❌ Error creating workspace page:', error);
@@ -402,7 +402,7 @@ export class NotionService {
           object: "block", 
           type: "heading_1", 
           heading_1: { 
-            rich_text: [{ type: "text", text: { content: "📊 AgenPay Dashboard" } }], 
+            rich_text: [{ type: "text", text: { content: "📊 SkyPay Dashboard" } }], 
             color: "default" 
           } 
         },
@@ -1193,7 +1193,7 @@ export class NotionService {
             rich_text: [
               {
                 text: {
-                  content: paymentData.fromName || 'AgenPay User',
+                  content: paymentData.fromName || 'SkyPay User',
                 },
               },
             ],

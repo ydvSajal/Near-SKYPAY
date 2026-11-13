@@ -50,6 +50,8 @@ Evidence files:
 | Facilitator relays only an exact-shape `ft_transfer` to the invoice receiver; replay returns the existing receipt | `lib/x402.js` payment-delegate guard | `npm test` x402; replay step in `evidence/x402-testnet.txt` | unit + testnet |
 | Unknown outcomes are reconciled from chain, not resent | `SkyPay.reconcile` | code review | implemented, not exercised live |
 | Checkout shows a live NEAR Intents 1Click quote (EXACT_OUTPUT to USDC on NEAR) for a payer-chosen source asset, with fee, time and expiry; amount and destination come only from the invoice | `lib/intents.js`, `CrossChainQuote` in `app/invoice/[id]/page.tsx` | `npm test` intents; `scripts/intents-quote.mjs`; `evidence/intents-dry-quote.txt` | unit + **live mainnet dry quote** |
+| Payer connects a NEAR wallet (Wallet Selector: MyNearWallet, Meteor), approves one `ft_transfer`; the page auto-submits the hash and the backend verifies it on-chain before closing | `agenpay-frontend/lib/nearWallet.ts`, `app/invoice/[id]/page.tsx`, `SkyPay.confirmInvoicePayment` | wallet picker opens (browser check); verification covered by `npm test` A06/A05 | implemented; wallet approval not yet exercised end-to-end |
+| Notion workspace setup runs as a retried outbox job (native fetch) and backfills existing invoices | `lib/outbox.js notionSetup`, `lib/NotionService.js` | live: dashboard + 3 databases created, INV-0001 upserted | live Notion |
 | Pay from another chain via NEAR Intents (deposit address, execution, settlement tracking) | — | — | **not built** (no Intents testnet; quotes are `dry: true`) |
 | Real USDC | — | — | **not built** (test token on testnet) |
 

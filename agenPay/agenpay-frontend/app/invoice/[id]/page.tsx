@@ -4,9 +4,10 @@ import { useCallback, useEffect, useState } from "react"
 import { useParams } from "next/navigation"
 import { authService } from "@/lib/auth"
 import { fromBaseUnits } from "@/lib/near"
+import { payWithWallet } from "@/lib/nearWallet"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { CheckCircle2, Clock, ExternalLink, CreditCard, AlertCircle, Loader2 } from "lucide-react"
+import { CheckCircle2, Clock, ExternalLink, CreditCard, AlertCircle, Loader2, Wallet } from "lucide-react"
 
 interface PublicInvoice {
   id: string
@@ -206,6 +207,45 @@ export default function InvoicePage() {
     }
   }
 
+  // Redirect wallets return with ?transactionHashes=<hash>: verify it automatically, then clean the URL.
+  useEffect(() => {
+    if (inv?.status !== "pending") return
+    const hash = new URLSearchParams(window.location.search).get("transactionHashes")?.split(",").pop()
+    if (!hash) return
+    window.history.replaceState(null, "", window.location.pathname)
+    verify(hash, "")
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inv?.status])
+
+  async function verify(hash: string, from: string) {
+    setBusy(true)
+    setNotice("")
+    try {
+      await authService.api(`/api/public/invoices/${id}/confirm`, {
+        method: "POST",
+        body: JSON.stringify({ txHash: hash, senderAccountId: from }),
+      })
+      await load()
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : "Verification failed")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const walletPay = async () => {
+    if (!inv) return
+    setBusy(true)
+    setNotice("")
+    try {
+      const { txHash, sender: from } = await payWithWallet(inv)
+      await verify(txHash, from)
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : "Wallet payment failed")
+      setBusy(false)
+    }
+  }
+
   if (error) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
@@ -312,25 +352,36 @@ export default function InvoicePage() {
             <div>
               <p className="font-semibold">Pay this invoice</p>
               <p className="mt-1 text-sm text-slate-600">
-                Send exactly <b className="tabular-nums">{inv.amountFormatted} {tokenName}</b> on {net} to the merchant account below,
-                then paste the transaction hash. SkyPay verifies it on-chain; nothing here can mark the invoice paid without a real transfer.
+                Connect your NEAR wallet and approve one transfer of <b className="tabular-nums">{inv.amountFormatted} {tokenName}</b> on {net}.
+                SkyPay then verifies it on-chain and closes the invoice automatically; nothing can mark it paid without a real transfer.
               </p>
             </div>
-            <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs">
-              <dt className="text-slate-500">Receiver</dt>
-              <dd className="break-all font-mono">{inv.receiver}</dd>
-              <dt className="text-slate-500">Token contract</dt>
-              <dd className="break-all font-mono">{inv.assetContract}</dd>
-              <dt className="text-slate-500">Memo</dt>
-              <dd className="font-mono">{inv.number}</dd>
-            </dl>
-            <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
-              <Input placeholder="Your NEAR account (sender)" value={sender} onChange={(e) => setSender(e.target.value)} />
-              <Input placeholder="Transaction hash" value={txHash} onChange={(e) => setTxHash(e.target.value)} />
-              <Button onClick={confirm} disabled={busy || !txHash || !sender} className="bg-primary text-white">
-                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Verify payment"}
-              </Button>
-            </div>
+            <Button onClick={walletPay} disabled={busy} className="h-11 bg-primary text-white">
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Wallet className="mr-2 h-4 w-4" /> Connect wallet &amp; pay</>}
+            </Button>
+            {inv.isTestToken && (
+              <p className="-mt-2 text-xs text-slate-500">
+                Testnet: the transaction first mints you {inv.amountFormatted} test tUSDC (no value), then pays the invoice, so you only need a testnet account.
+              </p>
+            )}
+            <details className="rounded-lg border border-slate-200 p-3 text-xs">
+              <summary className="cursor-pointer font-medium text-slate-700">Paid another way? Verify by transaction hash</summary>
+              <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <dt className="text-slate-500">Receiver</dt>
+                <dd className="break-all font-mono">{inv.receiver}</dd>
+                <dt className="text-slate-500">Token contract</dt>
+                <dd className="break-all font-mono">{inv.assetContract}</dd>
+                <dt className="text-slate-500">Memo</dt>
+                <dd className="font-mono">{inv.number}</dd>
+              </dl>
+              <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+                <Input placeholder="Your NEAR account (sender)" value={sender} onChange={(e) => setSender(e.target.value)} />
+                <Input placeholder="Transaction hash" value={txHash} onChange={(e) => setTxHash(e.target.value)} />
+                <Button onClick={confirm} disabled={busy || !txHash || !sender} className="bg-primary text-white">
+                  {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Verify payment"}
+                </Button>
+              </div>
+            </details>
 
             {inv.isTestToken && (
               <div className="rounded-lg border border-dashed border-[#fab219] bg-[#fab219]/5 p-3">
