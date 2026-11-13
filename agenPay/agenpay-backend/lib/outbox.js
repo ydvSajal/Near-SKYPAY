@@ -20,6 +20,8 @@ export class Outbox {
       ? nodemailer.createTransport({ service: env.EMAIL_SERVICE || 'gmail', auth: { user: env.EMAIL_USER, pass: env.EMAIL_PASS.trim() } })
       : null;
     this.from = env.EMAIL_FROM || 'SkyPay <noreply@skypay.local>';
+    // HTTPS email API: works where SMTP ports are blocked (Render free plan). Takes priority over SMTP.
+    this.resendKey = env.RESEND_API_KEY || null;
   }
 
   /** Enqueue once; a repeated call with the same key is a no-op. */
@@ -105,6 +107,16 @@ export class Outbox {
   }
 
   async sendMail(to, subject, html) {
+    if (this.resendKey) {
+      const r = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${this.resendKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from: this.from, to: [to], subject, html }),
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (!r.ok) throw new Error(`resend ${r.status}: ${(await r.text()).slice(0, 200)}`); // outbox retries with backoff
+      return 'live'; // accepted by the provider; delivery is not proven
+    }
     if (!this.mailer) {
       console.log(`📧 [fixture] would email ${to}: ${subject}`);
       return 'fixture';
