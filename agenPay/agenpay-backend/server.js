@@ -87,6 +87,10 @@ app.use('/x402pay/', paymentPageLimiter);
 // 🛡️ Admin portal API (own auth; type:'admin' JWT, separate from user tokens)
 app.use('/api/admin', adminRouter);
 
+const publicUser = (u) => ({
+  id: u.id, email: u.email, name: u.name, hasNotionIntegration: !!u.notionApiKey, hasNearAccount: !!u.nearAccountId,
+});
+
 // 🛡️ Authentication middleware
 const authenticateToken = async (req, res, next) => {
   const authHeader = req.headers['authorization'];
@@ -99,6 +103,7 @@ const authenticateToken = async (req, res, next) => {
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const user = await prisma.user.findUnique({
+      where: { id: decoded.userId },
       select: { id: true, email: true, name: true, notionApiKey: true, nearAccountId: true },
     });
 
@@ -170,6 +175,9 @@ app.get('/api/workspace-status/:userId', authenticateToken, async (req, res) => 
 });
 
 // �📝 User Registration
+// Session restore for the web app
+app.get('/api/me', authenticateToken, (req, res) => res.json({ success: true, data: { user: publicUser(req.user) } }));
+
 app.post('/api/auth/register', async (req, res) => {
   try {
     const { email, password, name } = req.body;
@@ -212,15 +220,7 @@ app.post('/api/auth/register', async (req, res) => {
 
     console.log(`✅ User registered: ${email}`);
     
-    res.status(201).json({
-      success: true,
-      token,
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-      },
-    });
+    res.status(201).json({ success: true, token, user: publicUser(user) });
   } catch (error) {
     console.error('❌ Registration error:', error);
     res.status(500).json({ error: 'Registration failed' });
@@ -254,17 +254,7 @@ app.post('/api/auth/login', async (req, res) => {
 
     console.log(`✅ User logged in: ${email}`);
     
-    res.json({
-      success: true,
-      token,
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        hasNotionIntegration: !!user.notionApiKey,
-        hasNearAccount: !!user.nearAccountId,
-      },
-    });
+    res.json({ success: true, token, user: publicUser(user) });
   } catch (error) {
     console.error('❌ Login error:', error);
     res.status(500).json({ error: 'Login failed' });
