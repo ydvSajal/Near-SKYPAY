@@ -14,7 +14,7 @@ type Field = "email" | "nearAccount" | "amount" | "role" | "memo" | "name"
 const FIELDS: [Field, RegExp][] = [
   ["email", /mail/],
   ["nearAccount", /near|wallet|account|address/],
-  ["amount", /^(amount|amountusdc|usdc|salary|pay|payment|payout|total|sum)$/],
+  ["amount", /^(pay|sum|net|netpay|grosspay|takehome)$|amount|salary|wage|usdc|payment|payout|total/],
   ["role", /^(role|title|jobtitle|position|designation|department)$/],
   ["memo", /memo|note|description|reference|ref|info|purpose|details/],
   ["name", /^(name|employee|employeename|fullname|payee|payeename|supplier|vendor)$/],

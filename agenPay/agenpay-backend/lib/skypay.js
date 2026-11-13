@@ -167,8 +167,8 @@ export class SkyPay {
     const runKind = kind === 'payroll' ? 'payroll' : 'payout';
     const runLabel = String(label || '').trim().slice(0, 80) || (runKind === 'payroll' ? payrollLabel() : `Batch ${new Date().toISOString().slice(0, 10)}`);
     if (runKind === 'payroll') {
-      // never pay the same payroll twice (a repeated click or agent call): same name + something already settled = stop
-      const prev = await this.prisma.payoutBatch.findFirst({ where: { userId, kind: 'payroll', label: runLabel, status: { in: ['done', 'partial', 'queued'] } } });
+      // A payroll name is a durable one-shot identifier, including failed/uncertain runs.
+      const prev = await this.prisma.payoutBatch.findFirst({ where: { userId, kind: 'payroll', label: runLabel } });
       if (prev) throw httpErr(409, `payroll "${runLabel}" was already run (${prev.status}). Use a different name to pay again on purpose.`);
     }
     const u = await this.user(userId);
@@ -186,11 +186,26 @@ export class SkyPay {
     const vault = await this.near.vaultState(u.vaultAccountId);
     if (total > BigInt(vault.available)) throw httpErr(422, 'batch total is more than the vault has available');
 
-    const batch = await this.prisma.payoutBatch.create({
-      data: { userId, label: runLabel, kind: runKind, total: total.toString(), status: 'queued', source: source ? String(source).slice(0, 120) : null },
-    });
+    // The primary-key constraint also serializes racing requests across processes.
+    // No schema migration is needed; the earlier lookup protects legacy random-ID runs.
+    const payrollId = runKind === 'payroll'
+      ? `payroll_${crypto.createHash('sha256').update(JSON.stringify([userId, runLabel])).digest('hex')}` : null;
+    let batch;
+    try {
+      batch = await this.prisma.payoutBatch.create({
+        data: { ...(payrollId ? { id: payrollId } : {}), userId, label: runLabel, kind: runKind,
+          total: total.toString(), status: 'queued', source: source ? String(source).slice(0, 120) : null },
+      });
+    } catch (e) {
+      if (payrollId && e.code === 'P2002') throw httpErr(409, 'payroll name already used; reconcile the existing run before any new payment');
+      throw e;
+    }
     const results = [];
-    const finish = (n) => (n === parsed.length ? 'done' : n === 0 ? 'failed' : 'partial');
+    const finish = () => {
+      if (results.some(a => !['settled', 'failed'].includes(a.status))) return 'processing';
+      const n = results.filter(a => a.status === 'settled').length;
+      return n === parsed.length ? 'done' : n === 0 ? 'failed' : 'partial';
+    };
     try {
       for (const [i, it] of parsed.entries()) {
         results.push(await this.paySupplier(userId, { payeeId: it.payeeId, amount: it.amount, memo: it.memo, idempotencyKey: `batch:${batch.id}:${i}`, batchId: batch.id }));
@@ -201,7 +216,7 @@ export class SkyPay {
       await this.prisma.payoutBatch.update({ where: { id: batch.id }, data: { status: settled === 0 ? 'failed' : 'partial' } }).catch(() => {});
       throw e;
     }
-    const status = finish(results.filter((a) => a.status === 'settled').length);
+    const status = finish();
     const done = await this.prisma.payoutBatch.update({ where: { id: batch.id }, data: { status } });
     await this.outbox.enqueue(userId, 'notion_batch', `notion_batch:${batch.id}:${status}`, { batchId: batch.id }).catch(() => {});
     return { batch: done, payments: results };
@@ -246,7 +261,9 @@ export class SkyPay {
       });
       const { status, error } = parseOutcome(r.status);
       attempt = await this.prisma.paymentAttempt.update({ where: { id: attempt.id }, data: { status, error, txHash: r.txHash } });
-      await this.prisma.sponsorLedger.create({ data: { userId, kind: 'agent_pay', detail: paymentId, txHash: r.txHash } });
+      // Cost reporting must not downgrade a verified payment or erase its tx hash.
+      await this.prisma.sponsorLedger.create({ data: { userId, kind: 'agent_pay', detail: paymentId, txHash: r.txHash } })
+        .catch((e) => console.error('sponsor ledger:', paymentId, e.message));
     } catch (e) {
       // Contract refusals arrive as thrown execution errors; transport errors leave the outcome unknown.
       // Only a direct panic is classified as a refusal. Generic execution/callback

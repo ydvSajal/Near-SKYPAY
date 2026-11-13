@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { SkyPay } from '../lib/skypay.js';
 
-function setup({ available = '100000000', refuse = [], dbDownAt = -1 } = {}) {
+function setup({ available = '100000000', refuse = [], dbDownAt = -1, unknown = [], sponsorDown = false } = {}) {
   const payees = [
     { id: 'p1', userId: 'u1', name: 'Acme', nearAccount: 'acme.testnet', email: null },
     { id: 'p2', userId: 'u1', name: 'Bolt', nearAccount: 'bolt.testnet', email: null },
@@ -27,16 +27,20 @@ function setup({ available = '100000000', refuse = [], dbDownAt = -1 } = {}) {
       update: async ({ where, data }) => Object.assign(attempts.find((a) => a.id === where.id), data),
     },
     payoutBatch: {
-      findFirst: async ({ where }) => batches.find((b) => b.userId === where.userId && b.kind === where.kind && b.label === where.label && where.status.in.includes(b.status)) || null,
-      create: async ({ data }) => { const b = { id: `b${batches.length}`, ...data }; batches.push(b); return b; },
+      findFirst: async ({ where }) => batches.find((b) => b.userId === where.userId && b.kind === where.kind && b.label === where.label) || null,
+      create: async ({ data }) => {
+        if (data.id && batches.some(b => b.id === data.id)) throw Object.assign(new Error('unique id'), { code: 'P2002' });
+        const b = { id: `b${batches.length}`, ...data }; batches.push(b); return b;
+      },
       update: async ({ where, data }) => Object.assign(batches.find((b) => b.id === where.id), data),
     },
-    sponsorLedger: { create: async () => ({}) },
+    sponsorLedger: { create: async () => { if (sponsorDown) throw Error('cost ledger unavailable'); return {}; } },
   };
   const near = {
     network: 'testnet',
     vaultState: async () => ({ available }),
     agentPay: async ({ recipient }) => {
+      if (unknown.includes(recipient)) throw new Error('RPC timeout after submission');
       if (refuse.includes(recipient)) throw new Error('Contract panicked: over daily limit');
       return { txHash: `tx-${recipient}`, status: { SuccessValue: Buffer.from('"Settled"').toString('base64') } };
     },
@@ -108,8 +112,8 @@ test('payroll: same run name cannot be paid twice; default name is the month', a
   assert.equal(first.batch.kind, 'payroll');
   await assert.rejects(sp.payBatch('u1', { kind: 'payroll', items: [item('p1')] }), { status: 409 });
   await sp.payBatch('u1', { kind: 'payroll', label: 'Bonus Nov', items: [item('p1')] }); // different name is allowed
-  batches[0].status = 'failed'; // a fully failed run may be retried under the same name
-  await sp.payBatch('u1', { kind: 'payroll', items: [item('p1')] });
+  batches[0].status = 'failed'; // a reused name must never create fresh payment IDs
+  await assert.rejects(sp.payBatch('u1', { kind: 'payroll', items: [item('p1')] }), { status: 409 });
   assert.equal((await sp.payBatch('u1', { items: [item('p1')] })).batch.kind, 'payout'); // supplier batches have no such guard
 });
 
@@ -121,4 +125,32 @@ test('employee fields: kind, role, pay validated and stored in base units', asyn
   await assert.rejects(sp.updatePayee('u1', 'p1', { salary: 'lots' }), { status: 400 });
   await assert.rejects(sp.updatePayee('u1', 'p1', { salary: '0' }), { status: 400 });
   assert.equal((await sp.updatePayee('u1', 'p1', { salary: '' })).salary, null);
+});
+
+
+test('payroll race: one durable name reserves only one run before any dispatch', async () => {
+  const { sp, batches, attempts } = setup();
+  const run = { kind: 'payroll', label: 'Race payroll', items: [item('p1')] };
+  const results = await Promise.allSettled([sp.payBatch('u1', run), sp.payBatch('u1', run)]);
+  assert.equal(results.filter(r => r.status === 'fulfilled').length, 1);
+  assert.equal(results.find(r => r.status === 'rejected').reason.status, 409);
+  assert.equal(batches.length, 1);
+  assert.equal(attempts.length, 1);
+});
+
+test('unknown payroll outcome stays processing and blocks another run of the same name', async () => {
+  const { sp, attempts } = setup({ unknown: ['acme.testnet'] });
+  const run = { kind: 'payroll', label: 'Uncertain payroll', items: [item('p1')] };
+  const out = await sp.payBatch('u1', run);
+  assert.equal(out.payments[0].status, 'unknown');
+  assert.equal(out.batch.status, 'processing');
+  await assert.rejects(sp.payBatch('u1', run), { status: 409 });
+  assert.equal(attempts.length, 1);
+});
+
+test('cost ledger failure cannot undo settled payment status or remove transaction evidence', async () => {
+  const { sp } = setup({ sponsorDown: true });
+  const result = await sp.paySupplier('u1', { payeeId: 'p1', amount: '1', idempotencyKey: 'cost-failure' });
+  assert.equal(result.status, 'settled');
+  assert.equal(result.txHash, 'tx-acme.testnet');
 });

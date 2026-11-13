@@ -41,3 +41,10 @@ test("semicolon CSV and exact decimal totals", () => {
   assert.equal(sumAmounts(["0.1", "0.2", "10", "1.000001"]), "11.300001")
   assert.equal(sumAmounts(["5", "5"]), "10")
 })
+
+test("real-world headers: Salary (USDC), Job title, Wallet, Email address, Net pay, Payment amount", () => {
+  const a = toPayrollRows([["Employee", "Job title", "Wallet", "Email address", "Salary (USDC)", "Notes"], ["Maya", "Analyst", "maya.testnet", "m@x.co", 7.25, "Nov"]])[0]
+  assert.deepEqual([a.name, a.role, a.nearAccount, a.email, a.amount, a.memo, a.errors.length], ["Maya", "Analyst", "maya.testnet", "m@x.co", "7.25", "Nov", 0])
+  assert.equal(toPayrollRows([["Name", "NEAR wallet address", "Net pay"], ["Lee", "lee.testnet", "5"]])[0].amount, "5")
+  assert.equal(toPayrollRows([["Payee name", "Account", "Payment amount"], ["Lee", "lee.testnet", "5"]])[0].name, "Lee")
+})
