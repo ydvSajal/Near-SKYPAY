@@ -14,14 +14,14 @@ const steps = [
     Icon: Bot,
     iconClass: "text-slate-600",
     title: "Agent Activates",
-    desc: "SKYPay AI monitors your Notion database 24/7, automatically creating invoices, scheduling payments, and handling follow-ups.",
+    desc: "While running, the agent checks your Notion database for new rows and turns each one into a NEAR invoice with a pay link.",
   },
   {
     num: "03",
     Icon: Zap,
     iconClass: "text-slate-600",
     title: "Payments Flow",
-    desc: "X402Pay processes all crypto transactions while your agent handles scheduling, reminders, refunds, and updates your Notion automatically.",
+    desc: "Customers pay at the checkout page, agents pay through the x402 link. SkyPay verifies each transfer on chain and marks the invoice paid in Notion.",
   },
 ]
 
@@ -45,7 +45,7 @@ export function HowItWorks() {
             </h2>
             <p className="mx-auto max-w-[520px] text-[15px] leading-[1.7] text-gray-600 md:text-base">
               Connect your Notion workspace and let SKYPay&apos;s AI agent automate
-              your entire crypto payment workflow.
+              your invoicing and supplier payments.
             </p>
           </Reveal>
 

@@ -20,7 +20,7 @@ export function CTA() {
 
       <div className="relative z-10 mx-auto max-w-[700px] text-center">
         <h2 className="mb-5 font-sans text-[clamp(24px,8vw,34px)] font-bold leading-[1.15] tracking-tight text-[#0f0f0f] md:text-[clamp(28px,4vw,52px)]">
-          Ready to automate your crypto payments?
+          Ready to automate your invoicing?
         </h2>
         <p className="mb-7 text-[15px] leading-[1.7] text-gray-600 md:mb-10 md:text-[17px]">
           Connect your Notion workspace and let SKYPay&apos;s AI agent handle all

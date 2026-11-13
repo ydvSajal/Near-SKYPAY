@@ -3,7 +3,7 @@ import { ArrowRight, ArrowUpRight, Check, Database, Send } from "lucide-react"
 
 const workflow = [
   { title: "Read your Notion workspace", detail: "Invoices, recipients, and payment instructions", icon: Database },
-  { title: "Prepare the payment", detail: "Scheduling and follow-ups in one workflow", icon: Send },
+  { title: "Prepare the payment", detail: "A NEAR invoice with a checkout and x402 pay link", icon: Send },
   { title: "Keep your records in sync", detail: "Payment status updates back in Notion", icon: Check },
 ]
 
@@ -14,12 +14,12 @@ export function Hero() {
         <div>
           <p className="mb-6 text-sm font-medium text-primary">Payment operations, connected.</p>
           <h1 className="max-w-xl text-[clamp(40px,5.1vw,66px)] font-semibold leading-[1.06] tracking-[-0.045em] text-slate-900">Payments on<br />your terms.</h1>
-          <p className="mt-7 max-w-md text-base leading-8 text-slate-600 md:text-lg">Schedule crypto payments, manage invoices, and keep Notion up to date with your AI payment agent.</p>
+          <p className="mt-7 max-w-md text-base leading-8 text-slate-600 md:text-lg">Invoice customers in USDC on NEAR, pay approved suppliers within limits, and keep Notion up to date with your AI payment agent.</p>
           <div className="mt-8 flex flex-wrap items-center gap-3">
             <Link href="/auth/login" className="inline-flex min-h-12 items-center gap-3 rounded-lg bg-primary px-5 text-sm font-semibold text-white transition-colors hover:bg-[#294b6c]">Get started <ArrowRight size={16} /></Link>
             <Link href="/docs#how-it-works" className="inline-flex min-h-12 items-center gap-2 rounded-lg border border-slate-200 px-5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50">Explore the workflow <ArrowUpRight size={15} /></Link>
           </div>
-          <p className="mt-6 text-xs leading-6 text-slate-500">Notion integration · X402Pay processing · One workspace</p>
+          <p className="mt-6 text-xs leading-6 text-slate-500">Notion integration · USDC on NEAR (testnet) · x402 pay links</p>
         </div>
         <div data-ui className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
           <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
@@ -29,7 +29,7 @@ export function Hero() {
           <div className="p-5 md:p-7">
             <div className="mb-7 border-l-2 border-primary bg-slate-50 p-4">
               <p className="mb-2 text-xs font-medium text-slate-500">Your instruction</p>
-              <p className="text-sm leading-6 text-slate-800">“Invoice SKY Corp for 0.15 ETH and update the payment status in Notion.”</p>
+              <p className="text-sm leading-6 text-slate-800">“Invoice SKY Corp 150 USDC and update the payment status in Notion.”</p>
             </div>
             <ol className="space-y-0">
               {workflow.map(({title, detail, icon: Icon}, i) => (

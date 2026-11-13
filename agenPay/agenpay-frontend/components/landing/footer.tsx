@@ -5,10 +5,10 @@ const columns = [
   {
     title: "AGENT FEATURES",
     links: [
-      { label: "Automated Scheduling", href: "/docs#services" },
-      { label: "Smart Follow-ups", href: "/docs#key-features" },
+      { label: "NEAR Invoices", href: "/docs#services" },
+      { label: "Agent Spending Limits", href: "/docs#key-features" },
       { label: "Notion Integration", href: "/docs#services" },
-      { label: "X402Pay Processing", href: "/docs#how-it-works" },
+      { label: "x402 Pay Links", href: "/docs#how-it-works" },
     ],
   },
   {
@@ -49,8 +49,7 @@ export function Footer() {
               SKYPay
             </h3>
             <p className="mb-5 max-w-60 text-sm leading-[1.7] text-gray-400">
-              Agentic payment infrastructure. Your AI handles all crypto payments
-              automatically.
+              AI payment agent for invoices and supplier payments in USDC on NEAR.
             </p>
             <div className="flex gap-2">
               {socials.map(({ Icon, label, href }) => (

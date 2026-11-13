@@ -12,7 +12,6 @@ import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { ConnectWallet } from "@/components/wallet/connect-wallet"
 import {
   CreditCard,
   Database,
@@ -66,7 +65,7 @@ function AuthPageContent() {
   const [isLoading, setIsLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState("")
-  const [step, setStep] = useState<"auth" | "notion" | "wallet">("auth")
+  const [step, setStep] = useState<"auth" | "notion" | "near">("auth")
 
   const [formData, setFormData] = useState({
     email: "",
@@ -76,22 +75,22 @@ function AuthPageContent() {
 
   useEffect(() => {
     const urlStep = searchParams.get("step")
-    if (urlStep && ["auth", "notion", "wallet"].includes(urlStep)) {
-      setStep(urlStep as "auth" | "notion" | "wallet")
+    if (urlStep && ["auth", "notion", "near"].includes(urlStep)) {
+      setStep(urlStep as "auth" | "notion" | "near")
     }
   }, [searchParams])
 
   useEffect(() => {
     if (isAuthenticated && user) {
       const hasNotionIntegration = (user as { hasNotionIntegration?: boolean }).hasNotionIntegration
-      const hasWallet = (user as { hasWallet?: boolean }).hasWallet
+      const hasNearAccount = (user as { hasNearAccount?: boolean }).hasNearAccount
 
-      if (hasNotionIntegration && hasWallet) {
+      if (hasNotionIntegration && hasNearAccount) {
         router.push("/dashboard")
       } else if (!hasNotionIntegration && step === "auth") {
         setStep("notion")
-      } else if (hasNotionIntegration && !hasWallet && step === "auth") {
-        setStep("wallet")
+      } else if (hasNotionIntegration && !hasNearAccount && step === "auth") {
+        setStep("near")
       }
     }
   }, [isAuthenticated, user, router, step])
@@ -161,25 +160,6 @@ function AuthPageContent() {
     }
   }
 
-  const handleWalletCreation = async () => {
-    setIsLoading(true)
-    setError("")
-
-    try {
-      const response = await authService.createWallet()
-      if (response.success) {
-        await authService.requestFaucet()
-        router.push("/dashboard")
-      } else {
-        setError(response.error || "Wallet creation failed")
-      }
-    } catch {
-      setError("Failed to create wallet")
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
   if (step === "auth") {
     return (
       <div className={pageShell}>
@@ -198,14 +178,14 @@ function AuthPageContent() {
                   Payments, ops, and automation in one place.
                 </h1>
                 <p className="mt-4 max-w-md text-sm leading-7 text-slate-600">
-                  Sign in to run your AI payment operations. Connect Notion, create a wallet, and
+                  Sign in to run your AI payment operations. Connect Notion, create a NEAR account, and
                   manage invoicing flows from one modern workspace.
                 </p>
                 <div className="mt-8 space-y-4">
                   {[
                     { label: "Secure email authentication", dot: "bg-secondary" },
                     { label: "Notion-first workflow setup", dot: "bg-blue-700" },
-                    { label: "Instant wallet provisioning", dot: "bg-green-600" },
+                    { label: "Sponsored NEAR account setup", dot: "bg-green-600" },
                   ].map((item) => (
                     <div
                       key={item.label}
@@ -466,7 +446,7 @@ function AuthPageContent() {
     )
   }
 
-  if (step === "wallet") {
+  if (step === "near") {
     return (
       <div className={pageShell}>
         <Navbar />
@@ -479,88 +459,42 @@ function AuthPageContent() {
                   Step 3 of 3
                 </span>
               </div>
-              <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary   shadow-lg shadow-emerald-500/30">
+              <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary   shadow-lg">
                 <Wallet className="h-8 w-8 text-white" />
               </div>
               <CardTitle className="text-center text-3xl font-semibold text-slate-900">
-                Create Your Wallet
+                Create your NEAR company account
               </CardTitle>
               <CardDescription className="text-center text-slate-600">
-                Final setup to activate transfers, collections, and automated refunds.
+                Receive invoice payments in USDC and let the agent pay approved suppliers within your limits.
               </CardDescription>
             </CardHeader>
 
             <CardContent className="space-y-5 p-8">
-              {/* Option 1 — managed wallet (powers the autonomous agent) */}
-              <div className="rounded-2xl border border-emerald-200/70 bg-emerald-50/60 p-5 ">
-                <h3 className="mb-1 text-sm font-semibold text-emerald-950">Managed agent wallet</h3>
-                <p className="mb-3 text-xs text-emerald-800">
-                  A secure wallet the AI agent controls, so it can send, collect, and auto-refund
-                  payments on its own.
-                </p>
-                <ul className="space-y-2 text-sm text-emerald-900">
-                  <li>Enables autonomous scheduled payments and refunds</li>
-                  <li>Multi-asset support for ETH, stablecoins, and more</li>
-                  <li>Development faucet support for rapid testing</li>
+              <div className="rounded-2xl border border-slate-200 bg-secondary p-5 ">
+                <h3 className="mb-3 text-sm font-semibold text-primary">What gets created (NEAR testnet, sponsored)</h3>
+                <ul className="space-y-2 text-sm text-primary">
+                  <li>Your company account. Its key is generated in this browser and never sent to SkyPay.</li>
+                  <li>An immutable vault contract that holds the funds the agent may spend.</li>
+                  <li>An agent key that can only call the vault&apos;s pay method, within your limits.</li>
                 </ul>
               </div>
 
-              {error && (
-                <Alert variant="destructive">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertDescription>{error}</AlertDescription>
-                </Alert>
-              )}
-
-              <Button
-                onClick={handleWalletCreation}
-                className="h-11 w-full rounded-xl bg-primary   text-white shadow-lg shadow-emerald-500/25 transition  "
-                disabled={isLoading}
-              >
-                {isLoading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Creating wallet...
-                  </>
-                ) : (
-                  <>
-                    <Wallet className="mr-2 h-4 w-4" />
-                    Create Managed Wallet
-                  </>
-                )}
+              <Button onClick={() => router.push("/finance")} className={primaryCta}>
+                <Wallet className="mr-2 h-4 w-4" />
+                Set up NEAR account
               </Button>
-
-              {/* Divider */}
-              <div className="flex items-center gap-3 text-xs uppercase tracking-wider text-slate-400">
-                <span className="h-px flex-1 bg-slate-300/60" />
-                or
-                <span className="h-px flex-1 bg-slate-300/60" />
-              </div>
-
-              {/* Option 2 — connect your own self-custody wallet */}
-              <div className="rounded-2xl border border-slate-200 bg-secondary p-5 ">
-                <h3 className="mb-1 text-sm font-semibold text-primary">Connect your own wallet</h3>
-                <p className="mb-4 text-xs text-primary">
-                  Link MetaMask or another wallet you control to receive payouts and withdraw. You
-                  approve every transaction yourself.
-                </p>
-                <ConnectWallet
-                  linkedAddress={(user as { externalWalletAddress?: string | null })?.externalWalletAddress}
-                  onLinked={() => router.push("/dashboard")}
-                />
-              </div>
 
               <Button
                 variant="outline"
                 onClick={() => router.push("/dashboard")}
                 className="h-11 w-full rounded-xl border-slate-200 bg-white  hover:bg-white"
-                disabled={isLoading}
               >
                 Skip for now
               </Button>
 
               <p className="text-center text-xs text-slate-500">
-                You can set up wallets later from your dashboard.
+                You can set this up later from Finance.
               </p>
             </CardContent>
           </Card>

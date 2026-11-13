@@ -81,9 +81,9 @@ function NotionCallbackContent() {
                   pollIntervalRef.current = null
                 }
                 if (!isMounted) return
-                // Workspace setup complete, refresh user and redirect to wallet
+                // Workspace setup complete, refresh user and redirect to NEAR account setup
                 await refreshUserRef.current()
-                router.push('/auth/login?step=wallet')
+                router.push('/auth/login?step=near')
               }
             } catch (err) {
               console.log('Still setting up workspace...')
@@ -97,8 +97,8 @@ function NotionCallbackContent() {
               pollIntervalRef.current = null
             }
             if (!isMounted) return
-            // Redirect to wallet anyway after timeout
-            router.push('/auth/login?step=wallet')
+            // Redirect to NEAR account setup anyway after timeout
+            router.push('/auth/login?step=near')
           }, 30000)
           
           return
@@ -116,10 +116,10 @@ function NotionCallbackContent() {
           
           await refreshUserRef.current() // Refresh user data to show Notion integration
           
-          // Automatically redirect to wallet setup
+          // Automatically redirect to NEAR account setup setup
           timeoutRef.current = setTimeout(() => {
             if (!isMounted) return
-            router.push('/auth/login?step=wallet')
+            router.push('/auth/login?step=near')
           }, 2000)
         } else {
           if (!isMounted) return
@@ -206,11 +206,11 @@ function NotionCallbackContent() {
 
             <div className="text-center">
               <p className="text-gray-600 mb-4">
-                Redirecting to wallet setup...
+                Redirecting to NEAR account setup...
               </p>
-              <Button onClick={() => router.push('/auth/login?step=wallet')} className="w-full">
+              <Button onClick={() => router.push('/auth/login?step=near')} className="w-full">
                 <ArrowRight className="mr-2 h-4 w-4" />
-                Continue to Wallet Setup
+                Continue to NEAR Account Setup
               </Button>
             </div>
           </CardContent>

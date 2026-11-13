@@ -12,26 +12,26 @@ const checklist = [
 const invoiceRows = [
   {
     client: "SKY Corp",
-    amount: "0.15 ETH",
+    amount: "150 USDC",
     badge: "Pending",
     badgeClass: "text-amber-600 bg-amber-500/10",
-    action: "Agent: Sent reminder",
+    action: "Agent: Pay link added",
     actionClass: "text-primary",
   },
   {
     client: "TechStart",
-    amount: "0.25 ETH",
+    amount: "250 USDC",
     badge: "Paid",
     badgeClass: "text-emerald-600 bg-emerald-500/10",
-    action: "Agent: Updated",
+    action: "Agent: Verified on NEAR",
     actionClass: "text-emerald-600",
   },
   {
     client: "DevCorp",
-    amount: "0.08 ETH",
-    badge: "Scheduled",
+    amount: "80 USDC",
+    badge: "New",
     badgeClass: "text-blue-600 bg-blue-500/10",
-    action: "Agent: Sending Jan 15",
+    action: "Agent: Creating invoice",
     actionClass: "text-primary",
   },
 ]

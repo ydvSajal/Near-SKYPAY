@@ -12,38 +12,38 @@ const features = [
   {
     Icon: Calendar,
     iconClass: "text-slate-600",
-    title: "Automated Scheduling",
-    desc: "Agent automatically schedules recurring payments, subscription renewals, and invoice due dates based on your Notion data.",
+    title: "Invoices with due dates",
+    desc: "Each invoice has line items, a due date and a public checkout page. Customers pay in USDC on NEAR; status is paid, pending or refunded with a transaction link.",
   },
   {
     Icon: Send,
     iconClass: "text-slate-600",
     title: "Smart Payment Sending",
-    desc: "Create payment requests in Notion, agent instantly generates X402Pay links and sends them to clients with personalized messages.",
+    desc: "Add a row in Notion and the agent turns it into a NEAR invoice, then writes the checkout link and an x402 pay link back to the row.",
   },
   {
     Icon: Bell,
     iconClass: "text-slate-600",
-    title: "Intelligent Follow-ups",
-    desc: "Agent tracks payment status and automatically sends reminders, escalations, and thank you messages at the right time.",
+    title: "Agents can pay too (x402)",
+    desc: "Every invoice answers HTTP 402 with payment requirements. Another AI agent can pay it with one signed USDC transfer; SkyPay sponsors the gas.",
   },
   {
     Icon: RefreshCw,
     iconClass: "text-slate-600",
     title: "Automatic Reconciliation",
-    desc: "When payments are received, agent automatically updates your Notion database, marks invoices as paid, and triggers next actions.",
+    desc: "An invoice is marked paid only after SkyPay reads the transfer on chain: right token, right receiver, full amount, used once. Export everything to CSV for your accountant.",
   },
   {
     Icon: MessageSquare,
     iconClass: "text-slate-600",
     title: "Natural Language Control",
-    desc: 'Chat with your agent using plain English: "Send invoice to SKY Corp for 0.15 ETH" or "Refund John\'s deposit."',
+    desc: 'Chat with your agent in plain English: "Invoice SKY Corp 150 USDC" or "Pay our hosting supplier 40 USDC."',
   },
   {
     Icon: Sparkles,
     iconClass: "text-slate-600",
-    title: "Workflow Automation",
-    desc: "Agent learns your patterns and automates complex workflows like subscription management, refund processing, and client onboarding.",
+    title: "Spending limits on chain",
+    desc: "The agent pays suppliers from a vault contract with per-payment and daily limits and an approved-payee list. You can revoke it at any time; the contract enforces it, not our server.",
   },
 ]
 

@@ -28,7 +28,7 @@ const plans = [
     features: [
       "Unlimited automated volume",
       "Advanced agent workflows",
-      "Smart scheduling & follow-ups",
+      "x402 pay links for AI agents",
       "Custom Notion templates",
       "Priority agent support",
     ],

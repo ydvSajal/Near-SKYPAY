@@ -456,7 +456,7 @@ export class NotionService {
             object: "block", 
             type: "callout", 
             callout: { 
-              rich_text: [{ type: "text", text: { content: "Total Sent\n0 ETH" } }], 
+              rich_text: [{ type: "text", text: { content: "Total Sent\n0 USDC" } }], 
               color: "red_background", 
               icon: { emoji: "📤" } 
             } 
@@ -472,7 +472,7 @@ export class NotionService {
             object: "block", 
             type: "callout", 
             callout: { 
-              rich_text: [{ type: "text", text: { content: "Total Received\n0 ETH" } }], 
+              rich_text: [{ type: "text", text: { content: "Total Received\n0 USDC" } }], 
               color: "green_background", 
               icon: { emoji: "📥" } 
             } 
@@ -591,7 +591,6 @@ export class NotionService {
         'Currency': {
           select: {
             options: [
-              { name: 'ETH', color: 'blue' },
               { name: 'USDC', color: 'green' },
               { name: 'USD', color: 'gray' },
             ],
@@ -600,9 +599,8 @@ export class NotionService {
         'Network': {
           select: {
             options: [
-              { name: 'sei-testnet', color: 'blue' },  
-              { name: 'sei-mainnet', color: 'green' },
-              { name: 'ethereum', color: 'purple' },
+              { name: 'near-testnet', color: 'blue' },
+              { name: 'near-mainnet', color: 'green' },
             ],
           },
         },
@@ -698,7 +696,6 @@ export class NotionService {
         'Currency': {
           select: {
             options: [
-              { name: 'ETH', color: 'blue' },
               { name: 'USDC', color: 'green' },
               { name: 'USD', color: 'gray' },
             ],
@@ -707,9 +704,8 @@ export class NotionService {
         'Network': {
           select: {
             options: [
-              { name: 'sei-testnet', color: 'blue' },  
-              { name: 'sei-mainnet', color: 'green' },  
-              { name: 'ethereum', color: 'purple' },
+              { name: 'near-testnet', color: 'blue' },
+              { name: 'near-mainnet', color: 'green' },
             ],
           },
         },
@@ -793,7 +789,6 @@ export class NotionService {
         'Currency': {
           select: {
             options: [
-              { name: 'ETH', color: 'blue' },
               { name: 'USDC', color: 'green' },
               { name: 'USD', color: 'gray' },
             ],
@@ -802,9 +797,8 @@ export class NotionService {
         'Network': {
           select: {
             options: [
-              { name: 'sei-testnet', color: 'blue' },  
-              { name: 'sei-mainnet', color: 'green' },  
-              { name: 'ethereum', color: 'purple' },
+              { name: 'near-testnet', color: 'blue' },
+              { name: 'near-mainnet', color: 'green' },
             ],
           },
         },
@@ -908,7 +902,7 @@ export class NotionService {
               id: page.id,
               type: db.databaseType,
               amount,
-              currency: page.properties.Currency?.select?.name || 'ETH',
+              currency: page.properties.Currency?.select?.name || 'USDC',
               status,
               description: this.getPropertyText(page.properties.Description) || this.getPropertyText(page.properties['Request ID']) || 'Unknown',
               created: page.properties.Created?.created_time,
@@ -1068,7 +1062,7 @@ export class NotionService {
           },
           'Network': {
             select: {
-              name: paymentData.network || 'sei-testnet',  
+              name: paymentData.network || 'near-testnet',  
             },
           },
           'Recipient Email': {
@@ -1169,12 +1163,12 @@ export class NotionService {
           },
           'Currency': {
             select: {
-              name: paymentData.currency || 'ETH',
+              name: paymentData.currency || 'USDC',
             },
           },
           'Network': {
             select: {
-              name: paymentData.network || 'sei-testnet',  
+              name: paymentData.network || 'near-testnet',  
             },
           },
           'Recipient Address': {
