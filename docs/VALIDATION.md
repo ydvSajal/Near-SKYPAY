@@ -2,7 +2,34 @@
 
 Review date: November 14, 2026 IST; runtime clock November 13, 2026 20:04 UTC. Branch main, base HEAD 0f34799. Changes are uncommitted; the tree also contains concurrent user work. No claim that this review deployed or executed real payments.
 
-## Commands actually run
+## Latest recheck (commit 4bf6e21 plus working tree)
+
+This follow-up inspected the new invoice-memo binding and supplied integration transcript. It preserved the two pre-existing edits to frontend payroll-core files. The prior review below and supplied testnet/SMTP/Notion logs are historical evidence; this follow-up did not send communications, use a live database or sign transactions.
+
+New fixes: deterministic company/payroll-name primary keys reject racing run creation and any same-name retry, including failed runs. Unknown line outcomes leave the batch processing. Sponsor cost-ledger failures no longer downgrade settled payment status or erase its transaction hash. These require no schema migration. Automatic recovery of batch aggregates/unfinished lines remains open. Changed frontend lint to the ESLint CLI and excluded generated Next build/type artifacts; source rules remain enabled.
+
+| Recheck command | Actual result |
+|---|---|
+| Backend `node --test --test-isolation=none test/*.test.js` | **42 pass, 0 fail**; [output](../evidence/recheck-backend-tests.txt). Three added regressions cover payroll races, unknown payroll retries and cost-ledger failure. The expected cost-ledger failure logs to stderr |
+| Frontend `node --test --test-isolation=none lib/payroll-core.test.ts` | **6 pass, 0 fail**; [output](../evidence/recheck-payroll-tests.txt). Node emits a module-type warning |
+| Frontend `node node_modules/typescript/bin/tsc --noEmit` | Exit 0, no diagnostics |
+| Frontend `npm run lint` (ESLint CLI) | Exit 0, no warnings/errors. Initial direct-CLI run included generated files; config now excludes .next, next-env.d.ts and output folders |
+| Backend `node node_modules/prisma/build/index.js validate` | Schema valid; DATABASE_URL overridden with a disposable localhost placeholder, no DB connection/write performed |
+| Backend `node --check lib/skypay.js`, `node --check server.js` | Exit 0 |
+| Frontend `npm run build` | Still blocked by runner spawn EPERM; no successful production build claimed |
+| `git diff --check` and artifact SHA-256 | Clean diff; both wasm files match SHA256SUMS |
+
+Runtime Node is v26.3.1; listed Node 22.8+/24 setup was not separately tested. Cargo is unavailable; no fresh native unit/sandbox run. No live deployment or payment claim was newly verified. README/CLAIMS/setup counts and current limitations have been reconciled with this evidence.
+
+## Documentation revision after the recheck
+
+The README was reorganized around product scope, evidence levels, offline checks and navigation. New SETUP, API, OPERATIONS and documentation/evidence indexes separate installation, integration, failure recovery and provenance. DEMO and CLAIMS were reconciled with current source. The old application-directory Sei README and root demo page now point to current guides; historical details remain in docs/legacy and Git history. The frontend environment example now lists the actual NEAR API/RPC settings instead of obsolete EVM WalletConnect guidance.
+
+Documentation validation: 15 current Markdown entry/guidance files checked for local links, with no missing targets; fenced blocks in the six main rewritten guides are balanced; referenced command/source paths exist; git diff --check passes. Commands and route descriptions were compared with current server/routes/scripts. No application behavior, payment execution, deployment or fresh live evidence was added in this documentation-only revision. Test counts above remain results of the preceding engineering recheck; no unnecessary payment scripts or test reruns were performed.
+
+## Initial review commands (retained history)
+
+
 
 | Command / working directory | Observed outcome |
 |---|---|
