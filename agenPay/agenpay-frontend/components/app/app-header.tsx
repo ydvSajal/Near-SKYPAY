@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation"
 import { LogOut } from "lucide-react"
 import { useAuth } from "@/lib/auth-context"
 import { Logo } from "@/components/brand/logo"
+import { SetupMenu } from "@/components/app/setup-menu"
 
 const tabs = [
   { href: "/dashboard", label: "Overview" },
@@ -38,6 +39,7 @@ export function AppHeader({ children }: { children?: React.ReactNode }) {
         </nav>
         <div className="ml-auto flex items-center gap-2">
           {children}
+          <SetupMenu />
           <span aria-hidden className="hidden h-6 w-px bg-border md:block" />
           <div className="hidden items-center gap-2 md:flex">
             <span className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">{initials}</span>
