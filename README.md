@@ -12,6 +12,12 @@ spend outside those rules.
 > no execution. See [CLAIMS.md](CLAIMS.md)
 > for what is implemented, tested, and proven on-chain, with links.
 
+## Current engineering review
+
+The November 14 review preserved the existing NEAR implementation and concurrent user edits. It added atomic invoice/settlement outbox writes, read-only restart reconciliation, stricter sponsor arguments, quote validation and CSV hardening. **38 backend tests pass locally; frontend type checking and 5 payroll tests pass.** Production build was blocked by runner `spawn EPERM`; Rust was unavailable. Existing deployment links and historical transaction logs were not reverified. Executable cross-chain collection is still missing.
+
+Start with [audit](docs/AUDIT.md), [competitor evidence](docs/COMPETITORS.md), [implementation plan](docs/IMPLEMENTATION_PLAN.md), [architecture](docs/ARCHITECTURE.md), [validation and acceptance matrix](docs/VALIDATION.md), [demo](docs/DEMO.md), [security](SECURITY.md) and [environment reference](.env.example). These review documents distinguish local tests, historical logs and unverified claims.
+
 ## Live demo
 
 | | URL |
@@ -40,8 +46,9 @@ the header shows which steps are done and lets you finish or edit them later.
 | Pay a supplier | Choose an approved payee and an amount, or ask the agent | Paid from a separate **operating vault** that you fund. Each payment has a per-payment cap and a daily cap; payees must be approved by you. |
 | Batch payout | Finance → Payouts → Batch: up to 10 payees and amounts, one click | Paid one after another from the vault; a refused payment does not stop the rest. Each shows settled or refused, with its transaction. |
 | Manage payees | Finance → Payees: edit name, email, notes; remove | Removing only affects SkyPay; the on-chain approval stays until you revoke it in the vault. |
-| Payroll from Excel | Finance → Payouts → Import Excel, or attach the file in the agent chat | Up to 25 rows (Name, NEAR account, Email, Amount, Memo), read in the browser. You check a preview, approve new accounts with your own key, then pay the run. Bad rows and limit problems block payment. |
-| Payouts in Notion | Automatic | A **Payouts** sub-page holds **Employees & payees** (with total paid, last paid) and **Payout runs**. Each payment also lands in **Supplier payments**. |
+| Employees and payroll | Finance → Employees: add staff with role and monthly pay, then Run payroll (one click), or ask the agent "run this month's payroll" | Staff are kept apart from suppliers. The agent shows the list and total first and pays only after you confirm. A payroll run name can be paid only once, so nobody is paid twice. |
+| Payroll from Excel | Finance → Employees → Import Excel, or attach the file in the agent chat | Up to 25 rows (Name, Role, NEAR account, Email, Amount, Memo), read in the browser. You check a preview, approve new accounts with your own key, then pay the run. Bad rows and limit problems block payment. |
+| Payouts in Notion | Automatic | A **Payouts** sub-page holds **Employees** (role, monthly pay, total paid, last paid), **Suppliers**, and **Payout runs** (payroll or supplier). Each payment also lands in **Supplier payments**. |
 | Stop the agent | "Revoke agent" | Takes effect on-chain; any further agent payment is refused by the contract. |
 | Close the month | Download `invoices.csv` and `payments.csv` | UTC timestamps, fixed 6-decimal amounts, transaction link per row, spreadsheet-formula injection blocked. |
 | Pay network fees | Nothing | SkyPay sponsors NEAR gas. The company never has to buy NEAR. |
@@ -92,7 +99,7 @@ flowchart LR
   (`lib/near/relayGuard.js`).
 * **Settlement check** (`NearService.evaluateReceipt`) reads NEP-141 `ft_transfer` events emitted *by the pinned
   token contract* in successful receipts. Client input is never trusted.
-* **Outbox** sends invoice/receipt emails and Notion updates from durable, idempotent jobs. Receipts are only
+* **Outbox** sends invoice/receipt emails and Notion updates from durable jobs. Invoice/settlement jobs commit with financial records. Expired running claims require provider review; exactly-once external delivery is not guaranteed. Receipts are only
   sent after verified settlement. Without credentials it runs in a clearly logged *fixture* mode.
 
 ---
@@ -114,7 +121,7 @@ npm ci
 cp .env.example .env            # set DATABASE_URL=postgresql://postgres:skypay@localhost:5434/skypay and JWT_SECRET
 npx prisma db push
 npm run near:bootstrap          # creates the testnet sponsor + test token; writes secrets to .env.near (gitignored)
-npm test                        # expect: 24 pass, 0 fail (frontend: node --test lib/payroll-core.test.ts, 5 pass)
+npm test                        # expect: 34 pass, 0 fail (frontend: node --test lib/payroll-core.test.ts, 5 pass)
 node server.js                  # expect: "NEAR testnet: token ..., relayer ..."
 ```
 
@@ -219,15 +226,15 @@ cargo build --release --target wasm32-unknown-unknown && cargo test -p skypay-va
 * **New during the hackathon:** the vault contract and tests, test token, NEAR adapter and sponsored relay,
   invoice/settlement model, outbox, CSV exports, agent NEAR tools, Finance and invoice pages, a self-hosted
   x402 facilitator on NEAR (`lib/x402.js`: `/x402pay/:id`, `/x402/supported|verify|settle`), NEAR Intents 1Click
-  dry-quote checkout panel (`lib/intents.js`), evidence.
+  dry-quote checkout panel (`lib/intents.js`), evidence. The current recovery hardening is described in docs/VALIDATION.md; concurrent payroll/employee edits are separate user work.
 * **Removed:** the legacy Sei/EVM code (Privy wallet, Sei x402 service and facilitator, wagmi/RainbowKit) was
   deleted from backend and frontend; it survives only in the `baseline-pre-near` tag and `docs/legacy/`.
 * **Tools and libraries:** near-sdk-rs, near-contract-standards, near-workspaces, near-api-js, Express, Prisma,
-  Next.js, LangChain/LangGraph. Code in this hackathon window was written with AI assistance (Claude Code).
+  Next.js, LangChain/LangGraph. Code in this hackathon window was written with AI assistance (Claude Code and Codex).
 * No competitor code was reused.
 
 ## Known limitations
 
 See [CLAIMS.md](CLAIMS.md#limitations) and [MIGRATION.md](MIGRATION.md) for design decisions. In short: testnet only,
-test token instead of USDC, cross-chain (NEAR Intents) is quote-only, no batches, refunds are not automated, and the owner key lives in browser
+test token instead of USDC, cross-chain (NEAR Intents) is quote-only, batches have incomplete crash recovery, refunds are not automated, and the owner key lives in browser
 storage (with a downloadable backup).

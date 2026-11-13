@@ -9,6 +9,9 @@ import jwt from 'jsonwebtoken';
 import { buildTop, buildRecent } from './notionDashboard.js';
 
 export class NotionService {
+  static renamed = new Set(); // Notion table ids already checked this process (one-off migrations)
+  static typed = new Set();
+
   constructor(notionApiKey = null) {
     this.notion = notionApiKey ? new Client({ auth: notionApiKey, fetch: globalThis.fetch }) : null;
     this.prisma = new PrismaClient();
@@ -965,22 +968,39 @@ export class NotionService {
     return db.id;
   }
 
-  ensurePayeesDatabase(userId, workspacePageId) {
+  /** Suppliers table (PAYEES) or Employees table (EMPLOYEES), both on the Payouts sub-page. */
+  async ensurePayeesDatabase(userId, workspacePageId, kind = 'supplier') {
     const rt = { rich_text: {} };
-    return this.ensureDb(userId, workspacePageId, 'PAYEES', 'Employees & payees', {
+    const common = {
       Name: { title: {} }, 'NEAR Account': rt, Email: { email: {} }, Notes: rt,
       'Total paid': { number: { format: 'number' } }, Payouts: { number: { format: 'number' } }, 'Last paid': { date: {} },
-    });
+    };
+    if (kind === 'employee') {
+      return this.ensureDb(userId, workspacePageId, 'EMPLOYEES', 'Employees', { ...common, Role: rt, 'Monthly pay': { number: { format: 'number' } } });
+    }
+    const id = await this.ensureDb(userId, workspacePageId, 'PAYEES', 'Suppliers', common);
+    // tables made before employees were split out were titled "Employees & payees"
+    if (!NotionService.renamed.has(id)) {
+      NotionService.renamed.add(id);
+      await this.notion.databases.update({ database_id: id, title: [{ type: 'text', text: { content: 'Suppliers' } }] }).catch(() => {});
+    }
+    return id;
   }
 
-  ensureRunsDatabase(userId, workspacePageId) {
+  async ensureRunsDatabase(userId, workspacePageId) {
     const rt = { rich_text: {} };
-    return this.ensureDb(userId, workspacePageId, 'PAYOUT_RUNS', 'Payout runs', {
-      Run: { title: {} }, Date: { date: {} }, Payments: { number: { format: 'number' } }, Settled: { number: { format: 'number' } },
+    const typeCol = { Type: { select: { options: [{ name: 'Payroll', color: 'purple' }, { name: 'Supplier payout', color: 'blue' }] } } };
+    const id = await this.ensureDb(userId, workspacePageId, 'PAYOUT_RUNS', 'Payout runs', {
+      ...typeCol, Run: { title: {} }, Date: { date: {} }, Payments: { number: { format: 'number' } }, Settled: { number: { format: 'number' } },
       'Total (USDC)': { number: { format: 'number' } },
       Status: { select: { options: [{ name: 'done', color: 'green' }, { name: 'partial', color: 'yellow' }, { name: 'failed', color: 'red' }, { name: 'queued', color: 'gray' }] } },
       Source: rt, 'Run ID': rt,
     });
+    if (!NotionService.typed.has(id)) { // runs table made before payroll existed: add the Type column once
+      NotionService.typed.add(id);
+      await this.notion.databases.update({ database_id: id, properties: typeCol }).catch(() => {});
+    }
+    return id;
   }
 
   /** One row per payout run (batch), keyed by Run ID. */
@@ -990,7 +1010,7 @@ export class NotionService {
     const properties = {
       Run: { title: [{ text: { content: r.label } }] }, Date: { date: { start: r.date } }, Payments: { number: r.payments },
       Settled: { number: r.settled }, 'Total (USDC)': { number: r.total }, Status: { select: { name: r.status } },
-      Source: text(r.source), 'Run ID': text(r.id),
+      Source: text(r.source), 'Run ID': text(r.id), Type: { select: { name: r.kind === 'payroll' ? 'Payroll' : 'Supplier payout' } },
     };
     const found = await this.notion.databases.query({ database_id: databaseId, filter: { property: 'Run ID', rich_text: { equals: r.id } } });
     if (found.results[0]) return this.notion.pages.update({ page_id: found.results[0].id, properties });
@@ -1005,12 +1025,16 @@ export class NotionService {
 
   /** p: payee row plus { totalPaid (number), payouts (count), lastPaid (ISO|null) } */
   async upsertPayeeRecord(userId, parentPageId, p) {
-    const databaseId = await this.ensurePayeesDatabase(userId, parentPageId);
+    const employee = p.kind === 'employee';
+    const databaseId = await this.ensurePayeesDatabase(userId, parentPageId, p.kind);
+    // a payee switched between employee and supplier: remove the row from the other table
+    await this.archivePayeeRecord(userId, p.nearAccount, employee ? 'PAYEES' : 'EMPLOYEES').catch(() => {});
     const text = (c) => ({ rich_text: [{ text: { content: String(c || '').slice(0, 1900) } }] });
     const properties = {
       Name: { title: [{ text: { content: p.name } }] }, 'NEAR Account': text(p.nearAccount),
       Email: { email: p.email || null }, Notes: text(p.notes),
       'Total paid': { number: p.totalPaid ?? 0 }, Payouts: { number: p.payouts ?? 0 }, 'Last paid': { date: p.lastPaid ? { start: p.lastPaid } : null },
+      ...(employee ? { Role: text(p.role), 'Monthly pay': { number: p.salaryNumber ?? null } } : {}),
     };
     const found = await this.notion.databases.query({ database_id: databaseId, filter: { property: 'NEAR Account', rich_text: { equals: p.nearAccount } } });
     if (found.results[0]) return this.notion.pages.update({ page_id: found.results[0].id, properties });
@@ -1018,12 +1042,14 @@ export class NotionService {
   }
 
   /** Trash the Notion row for a removed payee. False when there is no Payees table or no row. */
-  async archivePayeeRecord(userId, nearAccount) {
-    const db = await this.prisma.notionDatabase.findFirst({ where: { userId, databaseType: 'PAYEES', isActive: true } });
-    if (!db) return false;
-    const found = await this.notion.databases.query({ database_id: db.databaseId, filter: { property: 'NEAR Account', rich_text: { equals: nearAccount } } });
-    for (const page of found.results) await this.notion.pages.update({ page_id: page.id, archived: true });
-    return found.results.length > 0;
+  async archivePayeeRecord(userId, nearAccount, types = ['PAYEES', 'EMPLOYEES']) {
+    const dbs = await this.prisma.notionDatabase.findMany({ where: { userId, databaseType: { in: [].concat(types) }, isActive: true } });
+    let n = 0;
+    for (const db of dbs) {
+      const found = await this.notion.databases.query({ database_id: db.databaseId, filter: { property: 'NEAR Account', rich_text: { equals: nearAccount } } });
+      for (const page of found.results) { await this.notion.pages.update({ page_id: page.id, archived: true }); n++; }
+    }
+    return n > 0;
   }
 
   /** Create or update the Supplier payments row for one vault payment (keyed by Payment ID). */

@@ -7,6 +7,7 @@ test("template parses: quoted comma in name, blank email", () => {
   const rows = toPayrollRows(parseCsv(TEMPLATE_CSV))
   assert.equal(rows.length, 2)
   assert.deepEqual(rows.map((r) => [r.name, r.nearAccount, r.amount, r.errors.length]), [["Asha Rao", "asha.testnet", "12.5", 0], ["Lee, Sam", "sam-lee.testnet", "8", 0]])
+  assert.deepEqual(rows.map((r) => r.role), ["Designer", "Engineer"])
   assert.equal(rows[1].line, 3)
 })
 
@@ -16,7 +17,7 @@ test("loose headers, title row above header, xlsx-style number cells", () => {
     ["Employee", "Email address", "Wallet", "Salary", "Role"],
     ["Asha", "asha@example.com", "ASHA.testnet", 1200.5, "Designer"],
   ])
-  assert.deepEqual(rows[0], { line: 3, name: "Asha", nearAccount: "asha.testnet", email: "asha@example.com", amount: "1200.5", memo: "Designer", errors: [] })
+  assert.deepEqual(rows[0], { line: 3, name: "Asha", nearAccount: "asha.testnet", email: "asha@example.com", amount: "1200.5", role: "Designer", memo: "", errors: [] })
 })
 
 test("invalid rows are flagged with reasons, duplicates point at the first line", () => {

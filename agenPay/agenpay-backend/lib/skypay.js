@@ -45,16 +45,18 @@ export class SkyPay {
       const count = await this.prisma.invoice.count({ where: { userId } });
       const number = `INV-${String(count + 1 + attempt).padStart(4, '0')}`;
       try {
-        const inv = await this.prisma.invoice.create({
-          data: {
-            userId, number, customerEmail: email, customerName: input.customerName?.slice(0, 120) || null,
-            description: input.description?.slice(0, 500) || null, lineItems: items, amount,
-            asset: 'USDC', assetContract: this.near.token, decimals: 6, network: `near:${this.near.network}`,
-            receiver: u.nearAccountId, dueDate: due, seller: sellerOf(u),
-          },
+        const inv = await this.prisma.$transaction(async (tx) => {
+          const created = await tx.invoice.create({
+            data: {
+              userId, number, customerEmail: email, customerName: input.customerName?.slice(0, 120) || null,
+              description: input.description?.slice(0, 500) || null, lineItems: items, amount,
+              asset: 'USDC', assetContract: this.near.token, decimals: 6, network: `near:${this.near.network}`,
+              receiver: u.nearAccountId, dueDate: due, seller: sellerOf(u),
+            },
+          });
+          await financialJobs(tx, userId, created.id, 'pending');
+          return created;
         });
-        await this.outbox.enqueue(userId, 'invoice_email', `invoice_email:${inv.id}`, { invoiceId: inv.id });
-        await this.outbox.enqueue(userId, 'notion_invoice', `notion_invoice:${inv.id}:pending`, { invoiceId: inv.id });
         return inv;
       } catch (e) {
         if (e.code !== 'P2002') throw e;
@@ -78,9 +80,12 @@ export class SkyPay {
     const used = await this.prisma.invoice.findUnique({ where: { settledTxHash: txHash } });
     if (used) throw httpErr(409, 'this transaction already settled another invoice');
 
+    if (inv.assetContract !== this.near.token || inv.network !== `near:${this.near.network}`) {
+      throw httpErr(409, 'invoice settlement configuration differs from the active network/token');
+    }
     let v;
     try {
-      v = await this.near.verifyTokenReceipt({ txHash, senderHint: senderAccountId, receiver: inv.receiver, minAmount: inv.amount });
+      v = await this.near.verifyTokenReceipt({ txHash, senderHint: senderAccountId, receiver: inv.receiver, minAmount: inv.amount, memos: invoiceMemos(inv) });
     } catch (e) {
       throw httpErr(422, `could not verify transaction on NEAR: ${e.message}`);
     }
@@ -98,32 +103,31 @@ export class SkyPay {
           amount: v.received, network: inv.network, status: 'settled', txHash,
         },
       });
+      await financialJobs(tx, inv.userId, inv.id, 'paid');
       return tx.invoice.findUnique({ where: { id: inv.id } });
     });
     if (!result) return { invoice: await this.prisma.invoice.findUnique({ where: { id: inv.id } }), alreadyPaid: true };
-    await this.outbox.enqueue(inv.userId, 'receipt_email', `receipt_email:${inv.id}`, { invoiceId: inv.id });
-    await this.outbox.enqueue(inv.userId, 'notion_invoice', `notion_invoice:${inv.id}:paid`, { invoiceId: inv.id });
     return { invoice: result, overpaid: BigInt(v.received) > BigInt(inv.amount) };
   }
 
   // --------------------------------------------------------------- payees
   /** Only the authenticated owner registers payout destinations. Prompts and emails cannot (A02, A18). */
-  async addPayee(userId, { name, email, nearAccount, notes }) {
+  async addPayee(userId, { name, email, nearAccount, notes, kind, role, salary }) {
     const acct = String(nearAccount || '').trim().toLowerCase();
     if (!NEAR_ACCOUNT.test(acct)) throw httpErr(400, 'invalid NEAR account id');
     if (!(await this.near.accountExists(acct))) throw httpErr(400, `${acct} does not exist on NEAR ${this.near.network}`);
     await this.near.registerOnToken(acct); // sponsor-paid NEP-145 registration so it can receive USDC
     const payee = await this.prisma.payee.upsert({
       where: { userId_nearAccount: { userId, nearAccount: acct } },
-      create: { userId, name: String(name || acct).slice(0, 120), email: email || null, nearAccount: acct, notes: notes ? String(notes).slice(0, 500) : null },
-      update: { name: String(name || acct).slice(0, 120), email: email || null, ...(notes ? { notes: String(notes).slice(0, 500) } : {}) },
+      create: { userId, name: String(name || acct).slice(0, 120), email: email || null, nearAccount: acct, notes: notes ? String(notes).slice(0, 500) : null, ...staffFields({ kind, role, salary }) },
+      update: { name: String(name || acct).slice(0, 120), email: email || null, ...(notes ? { notes: String(notes).slice(0, 500) } : {}), ...staffFields({ kind, role, salary }) },
     });
     await this.outbox.enqueue(userId, 'notion_payee', `notion_payee:${payee.id}:${Date.now()}`, { payeeId: payee.id }).catch(() => {});
     return payee;
   }
 
   /** Rename / change contact or notes. The NEAR account is fixed: a new address is a new payee. */
-  async updatePayee(userId, id, { name, email, notes }) {
+  async updatePayee(userId, id, { name, email, notes, kind, role, salary }) {
     const p = await this.prisma.payee.findFirst({ where: { id, userId } });
     if (!p) throw httpErr(404, 'payee not found');
     const data = {};
@@ -137,6 +141,7 @@ export class SkyPay {
       data.email = e || null;
     }
     if (notes !== undefined) data.notes = String(notes || '').trim().slice(0, 500) || null;
+    Object.assign(data, staffFields({ kind, role, salary }));
     const out = await this.prisma.payee.update({ where: { id }, data });
     await this.outbox.enqueue(userId, 'notion_payee', `notion_payee:${id}:${Date.now()}`, { payeeId: id }).catch(() => {});
     return out;
@@ -157,8 +162,15 @@ export class SkyPay {
    * a refused item does not stop the rest. Every item is its own idempotent vault payment.
    * ponytail: synchronous, capped at 25 items (~2-4 s each); move to an outbox job if payroll grows past that.
    */
-  async payBatch(userId, { label, items, source }) {
+  async payBatch(userId, { label, items, source, kind }) {
     if (!Array.isArray(items) || items.length < 1 || items.length > MAX_BATCH) throw httpErr(400, `a batch needs 1 to ${MAX_BATCH} payments`);
+    const runKind = kind === 'payroll' ? 'payroll' : 'payout';
+    const runLabel = String(label || '').trim().slice(0, 80) || (runKind === 'payroll' ? payrollLabel() : `Batch ${new Date().toISOString().slice(0, 10)}`);
+    if (runKind === 'payroll') {
+      // never pay the same payroll twice (a repeated click or agent call): same name + something already settled = stop
+      const prev = await this.prisma.payoutBatch.findFirst({ where: { userId, kind: 'payroll', label: runLabel, status: { in: ['done', 'partial', 'queued'] } } });
+      if (prev) throw httpErr(409, `payroll "${runLabel}" was already run (${prev.status}). Use a different name to pay again on purpose.`);
+    }
     const u = await this.user(userId);
     if (!u.vaultAccountId || !u.agentKeyEnc) throw httpErr(409, 'vault not provisioned');
     const ids = [...new Set(items.map((i) => i.payeeId))];
@@ -175,7 +187,7 @@ export class SkyPay {
     if (total > BigInt(vault.available)) throw httpErr(422, 'batch total is more than the vault has available');
 
     const batch = await this.prisma.payoutBatch.create({
-      data: { userId, label: String(label || '').trim().slice(0, 80) || `Batch ${new Date().toISOString().slice(0, 10)}`, total: total.toString(), status: 'queued', source: source ? String(source).slice(0, 120) : null },
+      data: { userId, label: runLabel, kind: runKind, total: total.toString(), status: 'queued', source: source ? String(source).slice(0, 120) : null },
     });
     const results = [];
     const finish = (n) => (n === parsed.length ? 'done' : n === 0 ? 'failed' : 'partial');
@@ -216,27 +228,31 @@ export class SkyPay {
 
     const existing = await this.prisma.paymentAttempt.findUnique({ where: { paymentId } });
     if (existing) {
-      if (existing.recipient !== payee.nearAccount || existing.amount !== base) throw httpErr(409, 'idempotency key reused with a different payment');
+      if (existing.recipient !== payee.nearAccount || existing.amount !== base ||
+          JSON.parse(existing.requestHash || '{}').memo !== String(memo || '')) throw httpErr(409, 'idempotency key reused with a different payment');
       return existing;
     }
     const expiresAtMs = Date.now() + 15 * 60_000;
     let attempt = await this.prisma.paymentAttempt.create({
       data: {
         userId, direction: 'OUT', paymentId, recipient: payee.nearAccount, amount: base, network: `near:${this.near.network}`,
-        status: 'submitted', requestHash: JSON.stringify({ memo: memo || '', expiresAtMs }),
+        status: 'submitted', requestHash: JSON.stringify({ memo: String(memo || ''), expiresAtMs }),
         memo: memo ? String(memo).slice(0, 120) : null, batchId: batchId || null,
       },
     });
     try {
       const r = await this.near.agentPay({
-        user: u, paymentId, recipient: payee.nearAccount, amount: base, invoiceRef: String(memo || '').slice(0, 64), expiresAtMs,
+        user: u, paymentId, recipient: payee.nearAccount, amount: base, invoiceRef: paymentId, expiresAtMs,
       });
       const { status, error } = parseOutcome(r.status);
       attempt = await this.prisma.paymentAttempt.update({ where: { id: attempt.id }, data: { status, error, txHash: r.txHash } });
       await this.prisma.sponsorLedger.create({ data: { userId, kind: 'agent_pay', detail: paymentId, txHash: r.txHash } });
     } catch (e) {
       // Contract refusals arrive as thrown execution errors; transport errors leave the outcome unknown.
-      const refused = /Contract panicked|Smart contract panicked|FunctionCallError|ExecutionError/i.test(String(e.message));
+      // Only a direct panic is classified as a refusal. Generic execution/callback
+      // failures can occur AFTER token delivery and must remain unresolved.
+      const refused = /Contract panicked|Smart contract panicked/i.test(String(e.message)) &&
+        !/on_paid|callback/i.test(String(e.message));
       attempt = await this.prisma.paymentAttempt.update({
         where: { id: attempt.id },
         data: { status: refused ? 'failed' : 'unknown', error: String(e.message).slice(0, 300), txHash: e.txHash || null },
@@ -251,13 +267,54 @@ export class SkyPay {
     const u = await this.user(userId);
     const a = await this.prisma.paymentAttempt.findFirst({ where: { id: attemptId, userId, direction: 'OUT' } });
     if (!a) throw httpErr(404, 'payment not found');
+    if (['settled', 'failed', 'refunded'].includes(a.status)) return a;
     const onChain = await this.near.vaultPayment(u.vaultAccountId, a.paymentId);
-    const status = !onChain ? (a.status === 'unknown' ? 'failed' : a.status) : { Reserved: 'processing', Settled: 'settled', Failed: 'failed' }[onChain.status];
+    // Absence at one block is not proof of failure: a submitted transaction may still execute.
+    if (onChain && (onChain.recipient !== a.recipient || String(onChain.amount) !== a.amount || onChain.agent !== u.agentAccountId)) {
+      throw httpErr(422, 'vault payment does not match the persisted attempt');
+    }
+    const status = !onChain ? a.status : ({ Reserved: 'processing', Settled: 'settled', Failed: 'failed' }[onChain.status] || a.status);
     const out = await this.prisma.paymentAttempt.update({ where: { id: a.id }, data: { status } });
     await this.outbox.enqueue(userId, 'notion_payout', `notion_payout:${a.id}:${status}`, { attemptId: a.id }).catch(() => {});
     return out;
   }
 }
+
+/** These jobs commit with the financial record, closing the crash window before enqueue. */
+async function financialJobs(tx, userId, invoiceId, status) {
+  const kinds = status === 'paid' ? ['receipt_email', 'notion_invoice'] : ['invoice_email', 'notion_invoice'];
+  for (const kind of kinds) {
+    const idempotencyKey = kind === 'notion_invoice' ? `${kind}:${invoiceId}:${status}` : `${kind}:${invoiceId}`;
+    await tx.outboxJob.upsert({ where: { idempotencyKey }, update: {},
+      create: { userId, kind, idempotencyKey, payload: { invoiceId } } });
+  }
+}
+
+/** Memos that bind a token transfer to this invoice: its number (wallet, demo payer) or id (x402). */
+export const invoiceMemos = (inv) => [inv.number, inv.id];
+
+/** Validated employee fields; only the keys that were provided. */
+function staffFields({ kind, role, salary }) {
+  const out = {};
+  if (kind !== undefined) {
+    if (!['employee', 'supplier'].includes(kind)) throw httpErr(400, 'kind must be employee or supplier');
+    out.kind = kind;
+  }
+  if (role !== undefined) out.role = String(role || '').trim().slice(0, 80) || null;
+  if (salary !== undefined) {
+    if (salary === null || salary === '') out.salary = null;
+    else {
+      let base;
+      try { base = parseUnits(String(salary)); } catch { throw httpErr(400, `invalid pay amount "${salary}"`); }
+      if (BigInt(base) <= 0n) throw httpErr(400, 'pay amount must be greater than zero');
+      out.salary = base;
+    }
+  }
+  return out;
+}
+
+/** Default payroll run name, e.g. "Payroll 2026-11". */
+export const payrollLabel = (d = new Date()) => `Payroll ${d.toISOString().slice(0, 7)}`;
 
 /** Seller block printed on an invoice, frozen at issue time. */
 export function sellerOf(u) {
@@ -269,7 +326,7 @@ export function sellerOf(u) {
 
 /** Map a NEAR final execution status to our attempt status. */
 export function parseOutcome(status) {
-  if (status?.Failure) return { status: 'failed', error: JSON.stringify(status.Failure).slice(0, 300) };
+  if (status?.Failure) return { status: 'unknown', error: JSON.stringify(status.Failure).slice(0, 300) };
   if (status?.SuccessValue !== undefined) {
     let v = '';
     try { v = JSON.parse(Buffer.from(status.SuccessValue, 'base64').toString()); } catch { /* empty */ }

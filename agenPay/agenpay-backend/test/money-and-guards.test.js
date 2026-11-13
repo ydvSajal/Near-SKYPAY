@@ -47,7 +47,7 @@ const fc = (receiverId, methodName, args, deposit = 0n, extra = {}) => ({
 });
 
 test('A21/A22: relay sponsors only the owner policy and own-vault funding', () => {
-  assert.ok(checkDelegate(fc(ctx.vault, 'set_agent', { agent: 'a' }), ctx).ok);
+  assert.ok(checkDelegate(fc(ctx.vault, 'set_agent', { agent: 'agent.testnet', per_tx_limit: '10', daily_limit: '20', expires_at_ms: 1800000000000 }), ctx).ok);
   assert.ok(checkDelegate(fc(ctx.token, 'ft_transfer_call', { receiver_id: ctx.vault, amount: '5', msg: 'fund' }, 1n), ctx).ok);
 
   const refused = (d, re) => { const v = checkDelegate(d, ctx); assert.equal(v.ok, false); assert.match(v.reason, re); };
@@ -69,17 +69,17 @@ const ev = (executor, data, failure) => ({
 });
 
 test('A06/A05: settlement verified from token events, not client claims', () => {
-  const opts = { token: 'usdc.testnet', receiver: 'acme.testnet', minAmount: '10000000' };
-  const ok = { status: { SuccessValue: '' }, receipts_outcome: [ev('usdc.testnet', [{ old_owner_id: 'c.testnet', new_owner_id: 'acme.testnet', amount: '10000000' }])] };
+  const opts = { token: 'usdc.testnet', receiver: 'acme.testnet', minAmount: '10000000', memos: ['INV-0001'] };
+  const ok = { status: { SuccessValue: '' }, receipts_outcome: [ev('usdc.testnet', [{ old_owner_id: 'c.testnet', new_owner_id: 'acme.testnet', amount: '10000000', memo: 'INV-0001' }])] };
   assert.equal(NearService.evaluateReceipt(ok, opts).ok, true);
 
-  const under = { ...ok, receipts_outcome: [ev('usdc.testnet', [{ old_owner_id: 'c', new_owner_id: 'acme.testnet', amount: '9999999' }])] };
+  const under = { ...ok, receipts_outcome: [ev('usdc.testnet', [{ old_owner_id: 'c', new_owner_id: 'acme.testnet', amount: '9999999', memo: 'INV-0001' }])] };
   assert.match(NearService.evaluateReceipt(under, opts).reason, /below/);
 
-  const fakeToken = { ...ok, receipts_outcome: [ev('fake-usdc.testnet', [{ old_owner_id: 'c', new_owner_id: 'acme.testnet', amount: '10000000' }])] };
+  const fakeToken = { ...ok, receipts_outcome: [ev('fake-usdc.testnet', [{ old_owner_id: 'c', new_owner_id: 'acme.testnet', amount: '10000000', memo: 'INV-0001' }])] };
   assert.equal(NearService.evaluateReceipt(fakeToken, opts).ok, false);
 
-  const wrongReceiver = { ...ok, receipts_outcome: [ev('usdc.testnet', [{ old_owner_id: 'c', new_owner_id: 'mallory.testnet', amount: '10000000' }])] };
+  const wrongReceiver = { ...ok, receipts_outcome: [ev('usdc.testnet', [{ old_owner_id: 'c', new_owner_id: 'mallory.testnet', amount: '10000000', memo: 'INV-0001' }])] };
   assert.equal(NearService.evaluateReceipt(wrongReceiver, opts).ok, false);
 
   const failed = { status: { Failure: {} }, receipts_outcome: ok.receipts_outcome };
@@ -90,6 +90,38 @@ test('vault outcome mapping', () => {
   const b64 = (v) => Buffer.from(JSON.stringify(v)).toString('base64');
   assert.equal(parseOutcome({ SuccessValue: b64('Settled') }).status, 'settled');
   assert.equal(parseOutcome({ SuccessValue: b64('Failed') }).status, 'failed');
-  assert.equal(parseOutcome({ Failure: { ActionError: {} } }).status, 'failed');
+  assert.equal(parseOutcome({ Failure: { ActionError: {} } }).status, 'unknown');
   assert.equal(parseOutcome(undefined).status, 'unknown');
+});
+
+
+test('sponsor validates owner method arguments before spending gas', () => {
+  for (const [method, args] of [
+    ['set_agent', { agent: 'a' }], ['withdraw', { amount: '-1' }],
+    ['withdraw', { amount: (1n << 128n).toString() }], ['add_payee', { payee: 'INVALID!' }],
+    ['revoke_agent', { agent: 'agent.testnet', extra: true }],
+  ]) assert.equal(checkDelegate(fc(ctx.vault, method, args), ctx).ok, false);
+  assert.equal(checkDelegate(fc(ctx.vault, 'withdraw', { amount: '10' }), ctx).ok, true);
+});
+
+test('settlement rejects pending top-level and token receipt outcomes', () => {
+  const opts = { token: 'usdc.testnet', receiver: 'co.testnet', minAmount: '1', memos: ['INV-0001'] };
+  const receipt = ev('usdc.testnet', [{ old_owner_id: 'client.testnet', new_owner_id: 'co.testnet', amount: '1', memo: 'INV-0001' }]);
+  assert.equal(NearService.evaluateReceipt({ status: { SuccessReceiptId: 'pending' }, receipts_outcome: [receipt] }, opts).ok, false);
+  receipt.outcome.status = { SuccessReceiptId: 'pending' };
+  assert.equal(NearService.evaluateReceipt({ status: { SuccessValue: '' }, receipts_outcome: [receipt] }, opts).ok, false);
+});
+
+test('settlement is bound to one invoice: memo must match, other memos never add up', () => {
+  const opts = { token: 'usdc.testnet', receiver: 'acme.testnet', minAmount: '10000000', memos: ['INV-0001', 'inv_id_1'] };
+  const tx = (...data) => ({ status: { SuccessValue: '' }, receipts_outcome: [ev('usdc.testnet', data)] });
+  const t = (amount, memo) => ({ old_owner_id: 'c.testnet', new_owner_id: 'acme.testnet', amount, ...(memo ? { memo } : {}) });
+  assert.equal(NearService.evaluateReceipt(tx(t('10000000', 'INV-0001')), opts).ok, true);
+  assert.equal(NearService.evaluateReceipt(tx(t('10000000', 'inv_id_1')), opts).ok, true); // x402 uses the invoice id
+  const other = NearService.evaluateReceipt(tx(t('10000000', 'INV-0002')), opts);
+  assert.equal(other.ok, false); assert.match(other.reason, /not tagged with this invoice/);
+  assert.equal(NearService.evaluateReceipt(tx(t('10000000')), opts).ok, false); // no memo
+  // 6 for this invoice + 6 for another must not add up to pay a 10 invoice
+  assert.match(NearService.evaluateReceipt(tx(t('6000000', 'INV-0001'), t('6000000', 'INV-0002')), opts).reason, /below/);
+  assert.equal(NearService.evaluateReceipt(tx(t('10000000', 'INV-0001')), { ...opts, memos: undefined }).ok, false); // binding cannot be skipped
 });

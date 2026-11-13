@@ -9,8 +9,9 @@ import { AppHeader } from "@/components/app/app-header"
 import { StatusPill } from "@/components/app/status"
 import { BusinessForm } from "@/components/app/business-form"
 import { PayrollPicker, PayrollPreview } from "@/components/app/payroll-import"
+import { EmployeesPanel } from "@/components/app/employees-panel"
 import {
-  AlertCircle, ArrowRight, Building2, CheckCircle2, Download, ExternalLink, FileText, KeyRound, Loader2, Plus, Send, ShieldCheck, Trash2, Users, Vault, X,
+  AlertCircle, ArrowRight, Briefcase, Building2, CheckCircle2, Download, ExternalLink, FileText, KeyRound, Loader2, Plus, Send, ShieldCheck, Trash2, Users, Vault, X,
 } from "lucide-react"
 
 // ---------------------------------------------------------------- types
@@ -21,9 +22,9 @@ interface NearStatus {
   companyBalance?: string; vaultAvailable?: string; vaultReserved?: string; agentPolicy?: AgentPolicy | null
   links?: { company: string; vault: string; agent: string }
 }
-interface Payee { id: string; name: string; email: string | null; notes: string | null; nearAccount: string; allowListedOnChain: boolean }
+interface Payee { id: string; name: string; email: string | null; notes: string | null; nearAccount: string; allowListedOnChain: boolean; kind: string; role: string | null; salary: string | null }
 interface VaultPayment { id: string; paymentId: string; recipient: string; amountFormatted: string; status: string; error: string | null; url: string | null; createdAt: string; batchId: string | null; memo: string | null }
-interface Batch { id: string; label: string; status: string; totalFormatted: string; createdAt: string; payments: VaultPayment[] }
+interface Batch { id: string; label: string; kind: string; status: string; totalFormatted: string; createdAt: string; payments: VaultPayment[] }
 interface Invoice {
   id: string; number: string; customerEmail: string; customerName: string | null; amountFormatted: string; status: string
   dueDate: string; createdAt: string; txUrl: string | null; settledTxHash: string | null
@@ -72,15 +73,16 @@ function Section({ id, icon: I, title, sub, children }: { id?: string; icon: typ
 const TABS = [
   { id: "invoices", label: "Invoices", does: "Bill clients, see who paid", icon: FileText },
   { id: "vault", label: "Vault", does: "Agent budget and limits", icon: Vault },
-  { id: "payees", label: "Payees", does: "Manage your suppliers", icon: Users },
-  { id: "pay", label: "Payouts", does: "Pay one or many suppliers", icon: Send },
+  { id: "employees", label: "Employees", does: "Your team and payroll", icon: Briefcase },
+  { id: "payees", label: "Suppliers", does: "Vendors you pay", icon: Users },
+  { id: "pay", label: "Supplier payouts", does: "Pay one or many vendors", icon: Send },
   { id: "company", label: "Company", does: "Details on your invoices", icon: Building2 },
 ]
 
 const FLOW = [
   ["1. Get paid", "Clients pay your invoices. The money lands in your receiving account, which only you control."],
   ["2. Set a budget", "You move part of it into the vault and set the agent's limits. Nothing else is at risk."],
-  ["3. Pay suppliers", "Pay one payee or a whole batch from the vault. The contract refuses anything outside your limits, and every payout is logged in Notion."],
+  ["3. Pay your team and suppliers", "Run payroll for your employees or pay vendors from the vault. The contract refuses anything outside your limits, and every payout is logged in Notion."],
 ]
 
 // ------------------------------------------------------------------ page
@@ -92,6 +94,8 @@ export default function FinancePage() {
   const [payments, setPayments] = useState<VaultPayment[]>([])
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const [batches, setBatches] = useState<Batch[]>([])
+  const employees = payees.filter((p) => p.kind === "employee")
+  const suppliers = payees.filter((p) => p.kind !== "employee")
   const [busy, setBusy] = useState<string | null>(null)
   const [msg, setMsg] = useState<{ ok: boolean; text: string; url?: string } | null>(null)
   const [hasKey, setHasKey] = useState(false)
@@ -353,7 +357,7 @@ export default function FinancePage() {
               {/* Section sidebar: a column on desktop, a scrollable row on small screens */}
               <nav aria-label="Finance sections" className="flex gap-1 overflow-x-auto lg:sticky lg:top-20 lg:flex-col">
                 {TABS.map(({ id, label, does, icon: I }) => {
-                  const count = { vault: 0, company: 0, payees: payees.length, pay: payments.length, invoices: invoices.length }[id]
+                  const count = { vault: 0, company: 0, employees: employees.length, payees: suppliers.length, pay: payments.length, invoices: invoices.length }[id]
                   return (
                     <button
                       key={id}
@@ -439,11 +443,18 @@ export default function FinancePage() {
                 </div>
               </Section>}
 
+              {/* Employees */}
+              {tab === "employees" && <Section id="employees" icon={Briefcase} title="Employees" sub="The people who work for the company. Set each person's monthly pay once, then run payroll in one click, from an Excel sheet, or by asking the agent. Runs are logged in Notion under Payouts.">
+                {st.vault && user ? (
+                  <EmployeesPanel employees={employees} userId={user.id} company={st.company!} vault={st.vault} vaultAvailable={st.vaultAvailable} hasKey={hasKey} reload={load} />
+                ) : <p className="rounded-lg bg-muted p-4 text-sm text-muted-foreground">Set up the company NEAR account first.</p>}
+              </Section>}
+
               {/* Payees */}
-              {tab === "payees" && <Section id="payees" icon={Users} title="Approved payees" sub="The only accounts the vault will pay. You add them here; the agent cannot add one or take an address from chat, email or an invoice.">
-                {payees.length ? (
+              {tab === "payees" && <Section id="payees" icon={Users} title="Suppliers" sub="Outside vendors the vault may pay. You add them here; the agent cannot add one or take an address from chat, email or an invoice. Your staff live under Employees.">
+                {suppliers.length ? (
                   <ul className="divide-y divide-border rounded-lg border border-border">
-                    {payees.map((x) => (
+                    {suppliers.map((x) => (
                       <li key={x.id} className="grid gap-3 px-4 py-2.5">
                         <div className="flex flex-wrap items-center justify-between gap-3">
                           <div className="min-w-0">
@@ -479,13 +490,13 @@ export default function FinancePage() {
                     ))}
                   </ul>
                 ) : (
-                  <p className="rounded-lg bg-muted p-4 text-sm text-muted-foreground">No payees yet. Add the suppliers you pay regularly.</p>
+                  <p className="rounded-lg bg-muted p-4 text-sm text-muted-foreground">No suppliers yet. Add the vendors you pay regularly.</p>
                 )}
                 <div className="grid gap-3 sm:grid-cols-[1fr_1.3fr_auto] sm:items-end">
                   <F id="payee-name" label="Name"><input id="payee-name" value={payeeName} onChange={(e) => setPayeeName(e.target.value)} className={input} /></F>
                   <F id="payee-acct" label="NEAR account"><input id="payee-acct" value={payeeAcct} onChange={(e) => setPayeeAcct(e.target.value)} placeholder="supplier.testnet" className={`${input} font-mono`} spellCheck={false} /></F>
                   <button type="button" className={btnPrimary} disabled={!!busy || !payeeAcct.trim() || !hasKey} onClick={() => run("Add payee", async () => {
-                    const r = await authService.api<{ payee: Payee }>("/api/payees", { method: "POST", body: JSON.stringify({ name: payeeName, nearAccount: payeeAcct }) })
+                    const r = await authService.api<{ payee: Payee }>("/api/payees", { method: "POST", body: JSON.stringify({ name: payeeName, nearAccount: payeeAcct, kind: "supplier" }) })
                     const tx = await owner("Allow-list payee", st.vault!, "add_payee", { payee: r.payee.nearAccount })
                     setPayeeName(""); setPayeeAcct("")
                     return tx
@@ -494,7 +505,7 @@ export default function FinancePage() {
               </Section>}
 
             {/* Supplier payments */}
-            {tab === "pay" && <Section id="pay" icon={Send} title="Payouts" sub="Send money from the vault to approved payees, using the agent's key. Over-limit, unapproved or revoked payments are refused on chain. Every payout is also logged in your Notion workspace under Supplier payments.">
+            {tab === "pay" && <Section id="pay" icon={Send} title="Supplier payouts" sub="Send money from the vault to approved payees, using the agent's key. Over-limit, unapproved or revoked payments are refused on chain. Every payout is also logged in your Notion workspace under Supplier payments.">
               <div role="tablist" aria-label="Payout type" className="inline-flex w-fit rounded-lg border border-border bg-muted p-1">
                 {(["single", "batch", "import"] as const).map((m) => (
                   <button key={m} type="button" role="tab" aria-selected={payMode === m} onClick={() => setPayMode(m)}
@@ -502,7 +513,7 @@ export default function FinancePage() {
                 ))}
               </div>
               {payMode === "import" && (importFile
-                ? <PayrollPreview key={importFile.name + importFile.lastModified} file={importFile} onCancel={() => setImportFile(null)} onDone={() => { load().catch(() => {}) }} />
+                ? <PayrollPreview key={importFile.name + importFile.lastModified} kind="supplier" file={importFile} onCancel={() => setImportFile(null)} onDone={() => { load().catch(() => {}) }} />
                 : <PayrollPicker onFile={setImportFile} />)}
               {payMode === "batch" && (() => {
                 const valid = rows.every((r) => r.payeeId && isAmount(r.amount))
@@ -515,7 +526,7 @@ export default function FinancePage() {
                       <div key={i} className="grid gap-2 sm:grid-cols-[1.2fr_0.6fr_1fr_auto] sm:items-end">
                         <select aria-label={`Payee ${i + 1}`} className={input} value={r.payeeId} onChange={(e) => setRows(rows.map((x, k) => k === i ? { ...x, payeeId: e.target.value } : x))}>
                           <option value="">Choose payee</option>
-                          {payees.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+                          {payees.map((x) => <option key={x.id} value={x.id}>{x.name}{x.kind === "employee" ? " (employee)" : ""}</option>)}
                         </select>
                         <input aria-label={`Amount ${i + 1}`} placeholder={`Amount (${tokenShort})`} inputMode="decimal" value={r.amount} onChange={(e) => setRows(rows.map((x, k) => k === i ? { ...x, amount: e.target.value } : x))} className={`${input} tabular`} />
                         <input aria-label={`Memo ${i + 1}`} placeholder="Memo or bill reference" value={r.memo} onChange={(e) => setRows(rows.map((x, k) => k === i ? { ...x, memo: e.target.value } : x))} className={input} />
@@ -540,7 +551,7 @@ export default function FinancePage() {
                 <F id="pay-to" label="Payee">
                   <select id="pay-to" className={input} value={payTo} onChange={(e) => setPayTo(e.target.value)}>
                     <option value="">Choose payee</option>
-                    {payees.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+                    {payees.map((x) => <option key={x.id} value={x.id}>{x.name}{x.kind === "employee" ? " (employee)" : ""}</option>)}
                   </select>
                 </F>
                 <F id="pay-amt" label={`Amount (${tokenShort})`}><input id="pay-amt" inputMode="decimal" value={payAmt} onChange={(e) => setPayAmt(e.target.value)} className={`${input} tabular`} /></F>
@@ -556,11 +567,11 @@ export default function FinancePage() {
               </div>}
               {batches.length > 0 && (
                 <div className="grid gap-2">
-                  <h3 className="text-[15px] font-bold">Batches</h3>
+                  <h3 className="text-[15px] font-bold">Runs (payroll and batches)</h3>
                   {batches.map((b) => (
                     <details key={b.id} className="rounded-lg border border-border">
                       <summary className="flex cursor-pointer flex-wrap items-center justify-between gap-2 px-4 py-2.5 font-medium">
-                        <span>{b.label} <span className="ml-1 text-sm font-normal text-muted-foreground">{b.payments.length} payments · {Number(b.totalFormatted).toFixed(2)} {tokenShort} · {new Date(b.createdAt).toLocaleDateString()}</span></span>
+                        <span>{b.kind === "payroll" && <span className="mr-2 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">Payroll</span>}{b.label} <span className="ml-1 text-sm font-normal text-muted-foreground">{b.payments.length} payments · {Number(b.totalFormatted).toFixed(2)} {tokenShort} · {new Date(b.createdAt).toLocaleDateString()}</span></span>
                         <StatusPill status={b.status === "done" ? "settled" : b.status === "partial" ? "processing" : b.status === "failed" ? "failed" : "pending"} />
                       </summary>
                       <ul className="divide-y divide-border border-t border-border">

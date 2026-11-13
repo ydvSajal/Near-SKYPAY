@@ -44,6 +44,17 @@ export class Outbox {
   }
 
   async runOnce() {
+    if (this.running) return 0;
+    this.running = true;
+    try { return await this.processOnce(); } finally { this.running = false; }
+  }
+
+  async processOnce() {
+    // Acceptance may have happened before a crash. Quarantine; never blindly resend.
+    await this.prisma.outboxJob.updateMany({
+      where: { status: 'running', updatedAt: { lt: new Date(Date.now() - 15 * 60_000) } },
+      data: { status: 'unknown', lastError: 'Worker lease expired; inspect provider before retrying' },
+    });
     const jobs = await this.prisma.outboxJob.findMany({
       where: { status: 'pending', runAfter: { lte: new Date() } }, orderBy: { createdAt: 'asc' }, take: 20,
     });
@@ -111,7 +122,7 @@ export class Outbox {
     if (job.kind === 'notion_batch') return this.syncRun(job.payload.batchId);
     if (job.kind === 'notion_payee_remove') return this.removePayeeRow(job.userId, job.payload.nearAccount);
     const invoice = await this.prisma.invoice.findUnique({ where: { id: job.payload.invoiceId }, include: { user: true } });
-    if (!invoice) throw new Error('invoice missing');
+    if (!invoice || invoice.userId !== job.userId) throw new Error('invoice missing or tenant mismatch');
     if (job.kind === 'invoice_email') return this.sendMail(invoice.customerEmail, ...this.invoiceMail(invoice));
     if (job.kind === 'receipt_email') {
       if (invoice.status !== 'paid') throw new Error('receipt requested for unpaid invoice'); // never before verified settlement
@@ -199,7 +210,8 @@ export class Outbox {
     const svc = new NotionService(user.notionApiKey);
     // workspaces built before payroll get the Payouts sub-page (and its two tables) on their next sync
     if (!this.payoutsReady.has(userId)) {
-      await svc.ensurePayeesDatabase(userId, user.notionWorkspaceId);
+      await svc.ensurePayeesDatabase(userId, user.notionWorkspaceId, 'employee');
+      await svc.ensurePayeesDatabase(userId, user.notionWorkspaceId, 'supplier');
       await svc.ensureRunsDatabase(userId, user.notionWorkspaceId);
       this.payoutsReady.add(userId);
     }
@@ -243,6 +255,7 @@ export class Outbox {
     const total = settled.reduce((a, x) => a + BigInt(x.amount), 0n);
     await new NotionService(p.user.notionApiKey).upsertPayeeRecord(p.userId, p.user.notionWorkspaceId, {
       ...p, totalPaid: Number(formatUnits(total.toString())), payouts: settled.length, lastPaid: settled[0]?.updatedAt.toISOString() || null,
+      salaryNumber: p.salary ? Number(formatUnits(p.salary)) : null,
     });
     await this.syncDashboard(p.userId).catch((e) => console.error('notion dashboard refresh:', e.message)); // also creates Payout runs table
     return 'live';
@@ -258,7 +271,7 @@ export class Outbox {
     }
     await new NotionService(b.user.notionApiKey).upsertRunRecord(b.userId, b.user.notionWorkspaceId, {
       id: b.id, label: b.label, date: b.createdAt.toISOString(), payments: b.payments.length,
-      settled: b.payments.filter((p) => p.status === 'settled').length, total: Number(formatUnits(b.total)), status: b.status, source: b.source || '',
+      settled: b.payments.filter((p) => p.status === 'settled').length, total: Number(formatUnits(b.total)), status: b.status, source: b.source || '', kind: b.kind,
     });
     const payees = await this.prisma.payee.findMany({ where: { userId: b.userId, nearAccount: { in: [...new Set(b.payments.map((p) => p.recipient))] } }, select: { id: true } });
     for (const { id } of payees) await this.enqueue(b.userId, 'notion_payee', `notion_payee:${id}:run:${b.id}`, { payeeId: id });

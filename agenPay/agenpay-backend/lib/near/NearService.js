@@ -50,10 +50,12 @@ export class NearService {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ jsonrpc: '2.0', id: 'skypay', method, params }),
+        signal: AbortSignal.timeout(15_000),
       });
       const j = await r.json();
       const limited = r.status === 429 || j.error?.code === -429;
       if (limited && attempt < 4) { await new Promise((x) => setTimeout(x, 1000 * (attempt + 1))); continue; }
+      if (!r.ok && !j.error) throw new Error(`RPC HTTP ${r.status}`);
       if (j.error) throw Object.assign(new Error(j.error.data || j.error.message || 'rpc error'), { rpcError: j.error });
       return j.result;
     }
@@ -61,7 +63,7 @@ export class NearService {
 
   async view(contractId, method, args = {}) {
     const res = await this.rpc('query', {
-      request_type: 'call_function', finality: 'optimistic', account_id: contractId, method_name: method, args_base64: b64(args),
+      request_type: 'call_function', finality: 'final', account_id: contractId, method_name: method, args_base64: b64(args),
     });
     return JSON.parse(Buffer.from(res.result).toString('utf8'));
   }
@@ -72,7 +74,7 @@ export class NearService {
 
   async accountExists(id) {
     try {
-      await this.rpc('query', { request_type: 'view_account', finality: 'optimistic', account_id: id });
+      await this.rpc('query', { request_type: 'view_account', finality: 'final', account_id: id });
       return true;
     } catch {
       return false;
@@ -98,31 +100,35 @@ export class NearService {
    * Trust model: reads final-state execution outcomes from the RPC node; does not trust the client or any callback.
    * Uses NEP-141 `ft_transfer` events emitted BY the pinned token contract in successful receipts.
    */
-  async verifyTokenReceipt({ txHash, senderHint, receiver, minAmount }) {
+  async verifyTokenReceipt({ txHash, senderHint, receiver, minAmount, memos }) {
     const res = await this.rpc('tx', { tx_hash: txHash, sender_account_id: senderHint || receiver, wait_until: 'FINAL' });
-    return NearService.evaluateReceipt(res, { token: this.token, receiver, minAmount });
+    return NearService.evaluateReceipt(res, { token: this.token, receiver, minAmount, memos });
   }
 
   /** Pure: evaluate an RPC `tx` result. Exported for tests. */
-  static evaluateReceipt(res, { token, receiver, minAmount }) {
-    if (!res?.status || res.status.Failure) return { ok: false, reason: 'transaction failed' };
+  static evaluateReceipt(res, { token, receiver, minAmount, memos }) {
+    // Binding: only transfers tagged with THIS invoice (its number or id) count, so one payment cannot close two invoices.
+    if (!Array.isArray(memos) || !memos.length) return { ok: false, reason: 'invoice reference required' };
+    if (!res?.status || !Object.hasOwn(res.status, 'SuccessValue')) return { ok: false, reason: 'transaction failed' };
     let received = 0n;
     let from = null;
+    let otherMemo = 0n;
     for (const ro of res.receipts_outcome || []) {
       const o = ro.outcome;
       if (o.executor_id !== token) continue;
-      if (o.status?.Failure) return { ok: false, reason: 'token receipt failed' };
+      if (!o.status || !Object.hasOwn(o.status, 'SuccessValue')) return { ok: false, reason: 'token receipt not successful' };
       for (const line of o.logs || []) {
         if (!line.startsWith('EVENT_JSON:')) continue;
         let ev;
         try { ev = JSON.parse(line.slice(11)); } catch { continue; }
         if (ev.standard !== 'nep141' || ev.event !== 'ft_transfer') continue;
         for (const d of ev.data || []) {
-          if (d.new_owner_id === receiver) { received += BigInt(d.amount); from = d.old_owner_id; }
+          if (d.new_owner_id !== receiver) continue;
+          if (memos.includes(d.memo)) { received += BigInt(d.amount); from = d.old_owner_id; } else otherMemo += BigInt(d.amount);
         }
       }
     }
-    if (received === 0n) return { ok: false, reason: 'no matching token transfer to receiver' };
+    if (received === 0n) return { ok: false, reason: otherMemo > 0n ? 'transfer is not tagged with this invoice (memo must be the invoice number)' : 'no matching token transfer to receiver' };
     if (received < BigInt(minAmount)) return { ok: false, reason: 'amount below invoice total', received: received.toString() };
     return { ok: true, received: received.toString(), from, blockHash: res.transaction_outcome?.block_hash };
   }
@@ -268,7 +274,7 @@ export class NearService {
   }
 
   /** Decode + check a payer-signed ft_transfer delegate (x402 `exact` on NEAR). Throws status-tagged errors. */
-  async checkPaymentDelegateB64(signedDelegateB64, { payTo, minAmount }) {
+  async checkPaymentDelegateB64(signedDelegateB64, { payTo, minAmount, memos }) {
     let signed;
     try {
       signed = decodeSignedDelegate(Buffer.from(String(signedDelegateB64), 'base64'));
@@ -276,7 +282,7 @@ export class NearService {
       throw Object.assign(new Error('malformed signed delegate'), { status: 400 });
     }
     const d = normalizeDelegate(signed.delegateAction);
-    const v = checkPaymentDelegate(d, { token: this.token, payTo, minAmount, currentBlockHeight: await this.blockHeight() });
+    const v = checkPaymentDelegate(d, { token: this.token, payTo, minAmount, memos, currentBlockHeight: await this.blockHeight() });
     if (!v.ok) throw Object.assign(new Error(`payment refused: ${v.reason}`), { status: 422 });
     return { signed, d };
   }
@@ -300,7 +306,7 @@ export class NearService {
     const res = await agent.callFunctionRaw({
       contractId: user.vaultAccountId, methodName: 'pay',
       args: { payment_id: paymentId, recipient, amount, invoice_ref: invoiceRef, expires_at_ms: expiresAtMs },
-      gas: 100n * TGAS, deposit: 0n, waitUntil: 'EXECUTED_OPTIMISTIC',
+      gas: 100n * TGAS, deposit: 0n, waitUntil: 'FINAL',
     });
     return { txHash: res.transaction.hash, status: res.status };
   }

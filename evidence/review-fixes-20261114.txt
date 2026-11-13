@@ -1,0 +1,47 @@
+# Review-fix verification, 2026-11-13 20:1x UTC (NEAR testnet, TEST token)
+Backend under test: local, DATABASE = disposable Neon branch of the live project (schema pushed with prisma db push, no data-loss flag).
+
+## api-smoke on real Postgres (settlement bound to invoice memo)
+1. registered owner-77d7b5@example.com
+2. provisioned (no NEAR purchased by owner): acmestudio5d2a.testnet | vault acmestudio5d2a-vault.testnet | agent acmestudio5d2a-agent.testnet
+3. invoice INV-0001 total 10 USDC  checkout: /invoice/cmwff1wu90007625wvp1rk2is
+4. public checkout shows: 10 USDC to acmestudio5d2a.testnet due 2026-11-27 status=pending
+5. fake tx hash rejected: 422 could not verify transaction on NEAR: Failed parsing args: data did not match any variant of untagged enum TransactionInfo
+6. client paid (testnet demo payer, TEST token): status=paid https://testnet.nearblocks.io/txns/4V8p9KLj3bCqz34xN7dBz11KH6p2ii9mcFT4tk9FEGfc
+7. re-confirm same tx: status=paid alreadyPaid=true (closes once)
+8. same tx used for another invoice: 409 this transaction already settled another invoice
+9. company received 10 tUSDC (testnet test token, no value)
+10. owner registered payee Pixel Supplies = skypay-sup-f48b82.testnet
+11. allow-list payee on vault (sponsored): https://testnet.nearblocks.io/txns/7sEV9RkbCcp9GMNeDFnPuMqc27qzDGgiv7wq6ccGNAge
+12. agent limits 5 USDC/payment, 8 USDC/day (sponsored): https://testnet.nearblocks.io/txns/3hF9yv1ZMnnnweYMWYUG595v5zaV7y8terTmjiQmq4hg
+13. owner funded vault 9 USDC (sponsored): https://testnet.nearblocks.io/txns/5XXnNkc8hrWtvsrmQuwgT3odydWGRmcfCXjhS52PNK14
+14. sponsor refuses non-vault transfer: 422 relay refused: funds may only be sent to the company vault
+15. agent pays supplier 4: settled https://testnet.nearblocks.io/txns/ERW6vGuyJamP8cEUxQGHyFYo7vtY4MeGTjUXqioYBjbo
+16. same request repeated: settled same paymentId=true (no second transfer)
+17. 6 USDC (over 5 per-payment limit): failed -> Contract panicked: exceeds per-payment limit
+18. 4.5 more (4+4.5 > 8 daily cap): failed -> Contract panicked: exceeds daily limit
+18a. payee edited: Pixel Supplies Ltd / net 30
+18b. batch of 3 (1+2+2, daily cap leaves room for 4): batch=partial source=payroll-nov.xlsx items=settled,settled,failed
+18c. batch history lists 1 batch with 3 payments
+18d. batch over vault balance refused: 422 batch total is more than the vault has available
+19. vault available 2, reserved 0, agent spent today 7
+22. another company lists invoices: sees 0 (A17 tenant isolation)
+
+## sponsor_ledger on the branch after the run
+[{"kind":"relay","count":3},{"kind":"account_create","count":6},{"kind":"storage_deposit","count":2},{"kind":"agent_pay","count":3}]
+Sponsor cost observed: one company provision (3 accounts + storage) needs ~2.1 NEAR; sponsor balance fell to 0.106 NEAR and had to be refilled (testnet faucet via near:bootstrap).
+
+## outbox on the branch (mode column)
+invoice_email live 2 / fixture 2, receipt_email live 1, notion_invoice live 2 / fixture 3, notion_setup live 1, notion_dashboard live 1, notion_payout fixture 7, notion_payee fixture 2, notion_batch fixture 1
+(live = accepted by Gmail SMTP / Notion API; fixture = no Notion workspace connected for that smoke user.)
+
+## x402 agent payment after memo binding
+# SkyPay x402 on NEAR testnet  2026-11-13T20:19:59.245Z  token=skypay-tusdc-eb844b.testnet (TEST token, not real USDC)
+GET http://localhost:3101/x402pay/cmwff2dgp000l625wdy84887a -> 402 X-PAYMENT header is required
+  requirements: scheme=exact network=near-testnet payTo=acmestudio5d2a.testnet asset=skypay-tusdc-eb844b.testnet amount=10000000 (6 decimals)
+payer skypay-payer-652225.testnet created; minted 10000000 -> https://testnet.nearblocks.io/txns/D8pTStqv2p82cvf9hB5vKqRpo3oCVKupxjpywhgCGUYb
+payer signed one ft_transfer delegate (no gas, no NEAR spent by payer)
+GET http://localhost:3101/x402pay/cmwff2dgp000l625wdy84887a + X-PAYMENT -> 200
+  body: {"invoiceId":"cmwff2dgp000l625wdy84887a","number":"INV-0002","status":"paid","amount":"10000000","asset":"skypay-tusdc-eb844b.testnet","transaction":"38qN9NgqJfRc3gMdDwp3V8qqQ9YYrmtnFgbskXXCqM
+  X-PAYMENT-RESPONSE: {"success":true,"transaction":"38qN9NgqJfRc3gMdDwp3V8qqQ9YYrmtnFgbskXXCqMhZ","network":"near-testnet","payer":"skypay-payer-652225.testnet"}
+replay same X-PAYMENT -> 200 alreadyPaid=true

@@ -2,7 +2,7 @@
 // identifiers kept as text, and spreadsheet formula injection neutralised.
 import { formatUnits } from './near/units.js';
 
-const FORMULA_START = /^[=+\-@\t\r]/;
+const FORMULA_START = /^(?:[\s\u0000-\u001f]*[=+\-@]|[\t\r\n])/;
 
 /** Escape one cell. Customer-controlled text that starts like a formula is prefixed with ' */
 export function csvCell(value) {

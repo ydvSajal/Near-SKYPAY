@@ -82,6 +82,9 @@ model Payee {
   email       String?
   nearAccount String                          // registered by the owner only; never taken from prompts/emails
   notes       String?
+  kind        String   @default("supplier") // employee | supplier
+  role        String?                       // job title, employees only
+  salary      String?                       // default pay per payroll run, base units
   createdAt   DateTime @default(now())
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -119,6 +122,7 @@ model PayoutBatch {
   status    String   @default("queued")        // queued | done | partial | failed
   total     String                              // base units, sum of all items
   source    String?                             // uploaded file name, when imported from a spreadsheet
+  kind      String   @default("payout")         // payroll | payout
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   payments  PaymentAttempt[]

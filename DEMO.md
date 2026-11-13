@@ -1,3 +1,5 @@
+> For current commands, observed results and live-evidence limits see [docs/DEMO.md](docs/DEMO.md) and [docs/VALIDATION.md](docs/VALIDATION.md). This older walkthrough is retained for context.
+
 # Demo script (about 3 minutes)
 
 Recorded on NEAR testnet with the test token. Each step names what the viewer should see.

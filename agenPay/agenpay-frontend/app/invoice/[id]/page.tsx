@@ -383,8 +383,8 @@ export default function InvoicePage() {
                 <dd className="break-all font-mono">{inv.receiver}</dd>
                 <dt className="text-slate-500">Token contract</dt>
                 <dd className="break-all font-mono">{inv.assetContract}</dd>
-                <dt className="text-slate-500">Memo</dt>
-                <dd className="font-mono">{inv.number}</dd>
+                <dt className="text-slate-500">Memo (required)</dt>
+                <dd className="font-mono">{inv.number} <span className="font-sans text-slate-500">(a transfer without this memo is not accepted)</span></dd>
               </dl>
               <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
                 <Input placeholder="Your NEAR account (sender)" value={sender} onChange={(e) => setSender(e.target.value)} />

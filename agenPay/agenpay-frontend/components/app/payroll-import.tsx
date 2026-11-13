@@ -54,7 +54,7 @@ export function PayrollPicker({ onFile, compact = false }: { onFile: (f: File) =
     >
       <FileSpreadsheet className="h-6 w-6 text-primary" />
       <p className="text-sm font-semibold">Drop an Excel or CSV file here</p>
-      <p className="max-w-md text-sm text-muted-foreground">Columns: Name, NEAR account, Email, Amount, Memo. Up to 25 people. The file stays in your browser.</p>
+      <p className="max-w-md text-sm text-muted-foreground">Columns: Name, Role, NEAR account, Email, Amount, Memo. Up to 25 people. The file stays in your browser.</p>
       <div className="flex flex-wrap justify-center gap-2">
         <button type="button" className={primary} onClick={() => ref.current?.click()}><Upload className="h-4 w-4" /> Choose file</button>
         <button type="button" className={secondary} onClick={downloadTemplate}><Download className="h-4 w-4" /> Template</button>
@@ -65,13 +65,14 @@ export function PayrollPicker({ onFile, compact = false }: { onFile: (f: File) =
 }
 
 /** Preview, checks, and the two owner-confirmed steps. */
-export function PayrollPreview({ file, onDone, onCancel }: { file: File; onDone?: (r: PayrollResult) => void; onCancel?: () => void }) {
+export function PayrollPreview({ file, onDone, onCancel, kind = "employee" }: { file: File; onDone?: (r: PayrollResult) => void; onCancel?: () => void; kind?: "employee" | "supplier" }) {
+  const staff = kind === "employee"
   const { user } = useAuth()
   const [rows, setRows] = useState<PayrollRow[] | null>(null)
   const [readErr, setReadErr] = useState("")
   const [payees, setPayees] = useState<Payee[]>([])
   const [st, setSt] = useState<Status | null>(null)
-  const [label, setLabel] = useState(file.name.replace(/\.[^.]+$/, ""))
+  const [label, setLabel] = useState(staff ? `Payroll ${new Date().toISOString().slice(0, 7)}` : file.name.replace(/\.[^.]+$/, ""))
   const [checked, setChecked] = useState(false)
   const [busy, setBusy] = useState("")
   const [err, setErr] = useState("")
@@ -125,7 +126,13 @@ export function PayrollPreview({ file, onDone, onCancel }: { file: File; onDone?
       for (const [i, r] of needsApproval.entries()) {
         setBusy(`Approving ${i + 1} of ${needsApproval.length}: ${r.nearAccount}`)
         if (!byAcct.has(r.nearAccount)) {
-          await authService.api("/api/payees", { method: "POST", body: JSON.stringify({ name: r.name, nearAccount: r.nearAccount, email: r.email || undefined }) })
+          await authService.api("/api/payees", {
+            method: "POST",
+            body: JSON.stringify({
+              name: r.name, nearAccount: r.nearAccount, email: r.email || undefined, kind,
+              ...(staff ? { role: r.role || undefined, salary: r.amount } : {}), // sheet amount becomes their monthly pay
+            }),
+          })
         }
         await ownerAction({ userId: user!.id, company: st.company!, receiverId: st.vault!, method: "add_payee", args: { payee: r.nearAccount }, label: "Allow-list payee (payroll import)" })
       }
@@ -143,7 +150,7 @@ export function PayrollPreview({ file, onDone, onCancel }: { file: File; onDone?
       const ids = new Map(list.map((p) => [p.nearAccount, p.id]))
       const r = await authService.api<{ batch: { status: string; label: string }; payments: Paid[] }>("/api/vault/payout-batches", {
         method: "POST",
-        body: JSON.stringify({ label, source: file.name, items: valid.map((x) => ({ payeeId: ids.get(x.nearAccount), amount: x.amount, memo: x.memo || undefined })) }),
+        body: JSON.stringify({ label, source: file.name, kind: staff ? "payroll" : undefined, items: valid.map((x) => ({ payeeId: ids.get(x.nearAccount), amount: x.amount, memo: x.memo || undefined })) }),
       })
       setPaid({ status: r.batch.status, payments: r.payments })
       const settled = r.payments.filter((p) => p.status === "settled")
@@ -172,7 +179,7 @@ export function PayrollPreview({ file, onDone, onCancel }: { file: File; onDone?
               return (
                 <tr key={r.line} className={r.errors.length ? "bg-destructive/5" : ""}>
                   <td className="px-3 py-2 tabular text-muted-foreground">{r.line}</td>
-                  <td className="px-3 py-2"><p className="font-medium">{r.name}</p><p className="break-all font-mono text-xs text-muted-foreground">{r.nearAccount || "—"}</p>{r.email && <p className="text-xs text-muted-foreground">{r.email}</p>}</td>
+                  <td className="px-3 py-2"><p className="font-medium">{r.name}{r.role && <span className="ml-1.5 text-xs font-normal text-muted-foreground">{r.role}</span>}</p><p className="break-all font-mono text-xs text-muted-foreground">{r.nearAccount || "—"}</p>{r.email && <p className="text-xs text-muted-foreground">{r.email}</p>}</td>
                   <td className="px-3 py-2 text-right tabular font-medium">{r.amount}</td>
                   <td className="max-w-[160px] px-3 py-2 text-muted-foreground">{r.memo}</td>
                   <td className="px-3 py-2">
@@ -182,7 +189,7 @@ export function PayrollPreview({ file, onDone, onCancel }: { file: File; onDone?
                           : res.url && <a href={res.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 text-xs font-semibold text-primary">tx <ExternalLink className="h-3 w-3" /></a>}
                       </span>
                     ) : r.errors.length ? <span className="text-xs text-destructive">{r.errors.join("; ")}</span>
-                      : p?.allowListedOnChain ? <span className="text-xs font-medium text-success">Approved payee</span>
+                      : p?.allowListedOnChain ? <span className="text-xs font-medium text-success">{staff ? "Approved employee" : "Approved payee"}</span>
                       : <span className="text-xs font-medium text-warning">{p ? "Not approved on vault" : "New: needs your approval"}</span>}
                   </td>
                 </tr>
@@ -194,7 +201,7 @@ export function PayrollPreview({ file, onDone, onCancel }: { file: File; onDone?
 
       {paid ? (
         <p className="flex items-center gap-2 rounded-lg bg-muted p-3 text-sm font-medium">
-          <CheckCircle2 className="h-4 w-4 text-success" /> Run {paid.status}: {paid.payments.filter((p) => p.status === "settled").length} of {paid.payments.length} paid. Logged in Notion under Payouts.
+          <CheckCircle2 className="h-4 w-4 text-success" /> Run {paid.status}: {paid.payments.filter((p) => p.status === "settled").length} of {paid.payments.length} paid. Logged in Notion under Payouts{staff ? " (Employees, Payout runs)" : ""}.
         </p>
       ) : (
         <>

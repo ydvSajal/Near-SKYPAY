@@ -43,6 +43,7 @@ const PROMPTS = [
   { label: "New invoice", text: "Invoice Harbor & Pine (billing@harborpine.test) 25 USDC for design work, due in 7 days" },
   { label: "Check an invoice", text: "Is INV-0001 paid?" },
   { label: "Pay a supplier", text: "Pay my approved supplier 5 USDC for hosting" },
+  { label: "Run payroll", text: "Run this month's payroll for my employees" },
   { label: "Summary", text: "Summarize my finances" },
   { label: "Pay from a spreadsheet", text: "" },
 ]
@@ -439,7 +440,7 @@ export default function Dashboard() {
                 {chatHistory.length === 0 && (
                   <div className="py-4">
                     <p className="text-sm font-medium">Ask the agent in plain English.</p>
-                    <p className="mt-1 text-sm text-muted-foreground">It can invoice, check status, pay approved suppliers and summarize. For payroll, attach an Excel or CSV: you check and approve every row before anything is paid.</p>
+                    <p className="mt-1 text-sm text-muted-foreground">It can invoice, check status, pay suppliers and run payroll for your employees (it shows you the list first). Or attach an Excel or CSV: you check and approve every row before anything is paid.</p>
                     <div className="mt-4 flex flex-wrap gap-2">
                       {PROMPTS.map((p) => (
                         <button
@@ -461,7 +462,7 @@ export default function Dashboard() {
                       {msg.file && (
                         <div className="mt-3 rounded-lg bg-card p-3">
                           <PayrollPreview file={msg.file} onDone={(r) => {
-                            setChatHistory((prev) => [...prev, { role: "assistant", content: `Payout run **${r.label}** ${r.status}: ${r.settled} of ${r.total} paid, ${r.amount} USDC in total. Each payment is in Notion under Supplier payments, and the run under Payouts.`, timestamp: new Date() }])
+                            setChatHistory((prev) => [...prev, { role: "assistant", content: `Payout run **${r.label}** ${r.status}: ${r.settled} of ${r.total} paid, ${r.amount} USDC in total. It is logged in Notion under Payouts (Employees and Payout runs).`, timestamp: new Date() }])
                             load()
                           }} />
                         </div>

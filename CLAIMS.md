@@ -1,3 +1,5 @@
+> Review update: existing logs below are historical. This session verified offline tests only, not deployed or live-payment claims. See [current acceptance evidence](docs/VALIDATION.md) and [audit](docs/AUDIT.md).
+
 # Claims, evidence and limitations
 
 Every public claim about SkyPay maps to code, a check you can run, and recorded evidence.

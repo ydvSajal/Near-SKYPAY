@@ -1,3 +1,5 @@
+> Historical migration audit. For the current evidence review and unresolved findings see [docs/AUDIT.md](docs/AUDIT.md).
+
 # Baseline audit (tag `baseline-pre-near`, 13 Nov 2026)
 
 What the pre-hackathon SkyPay/AgenPay code actually did, before any NEAR work. Statuses: working / partial / missing / broken.

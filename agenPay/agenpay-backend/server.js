@@ -18,6 +18,7 @@ import adminRouter from './lib/adminRouter.js';
 import { NearService } from './lib/near/NearService.js';
 import { Outbox } from './lib/outbox.js';
 import { SkyPay } from './lib/skypay.js';
+import { ReconciliationWorker } from './lib/reconciliation.js';
 import { createNearRouter } from './lib/nearRouter.js';
 import { createX402Router } from './lib/x402.js';
 
@@ -38,6 +39,7 @@ const prisma = new PrismaClient();
 const nearService = new NearService(process.env);
 const outbox = new Outbox({ prisma, near: nearService });
 const skypay = new SkyPay({ prisma, near: nearService, outbox });
+const reconciliation = new ReconciliationWorker({ prisma, skypay });
 
 // Store active agents for each user
 const activeAgents = new Map();
@@ -563,6 +565,8 @@ app.get('/api/agent/status', authenticateToken, async (req, res) => {
 
 // Graceful shutdown
 process.on('SIGINT', async () => {
+  reconciliation.stop();
+  outbox.stop();
   for (const [userId, agent] of activeAgents) {
     try { await agent.cleanup(); } catch (error) { console.error(`Error cleaning up agent for user ${userId}:`, error); }
   }
@@ -573,5 +577,6 @@ process.on('SIGINT', async () => {
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   outbox.start();
+  if (nearService.configured) reconciliation.start();
   console.log(`SkyPay API on :${PORT} | NEAR ${nearService.network}: ${nearService.configured ? `token ${nearService.token}, relayer ${nearService.relayerId}` : 'NOT configured (npm run near:bootstrap)'}`);
 });

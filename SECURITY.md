@@ -30,7 +30,7 @@ The vault has **no access keys** after deployment. Its code cannot be upgraded a
 * `.env` and `.env.near` are gitignored. `.env.near` holds the sponsor key and the key-encryption secret.
 * The agent's function-call key is stored AES-256-GCM encrypted with `NEAR_KEY_ENC_SECRET`.
 * The owner's key never leaves the browser; only the public key is sent to provision the account.
-* Git history was scanned for keys before publishing.
+* Prior documentation claims a history scan; this review did not independently scan all history. Do not publish without verifying history and rotating any exposed credentials.
 
 ## Privacy
 
@@ -41,3 +41,14 @@ SkyPay does not claim confidential payments.
 ## Reporting
 
 Please open a private security advisory on the GitHub repository.
+
+
+## Recovery and current limits (November 14 review)
+
+Invoice issuance and settlement write their outbox jobs in the same Prisma transaction. Outgoing attempts are persisted before dispatch; a startup worker only reads unresolved contract payments. Missing records do not prove failure. Generic transaction/callback failures remain unknown pending reconciliation; a successful callback result `Failed` is a definitive token-transfer failure. Reconcile verifies amount, recipient and agent and uses final-state views. Never create a new payment ID merely to clear unknown status.
+
+External delivery is not exactly-once. SMTP may accept before a timeout; Notion can create before the local mapping is stored. Expired running outbox jobs are quarantined as unknown after 15 minutes. An operator must inspect provider records and durable mappings before deciding to mark done or retry. Never alter the invoice's paid state to repair email/Notion. No automatic recovery override exists for a failed vault callback; reserved funds may remain locked.
+
+Sponsor guards validate owner method argument fields, account syntax, u128 amounts, gas, receiver, deposits and expiry. Process-local rate/replay limits are not durable cost budgets. Registration deposits and funding costs need separate accounting; sponsor operational balances must be funded. A fresh complete sponsorship run was not verified here. The external payer wallet's ordinary transaction signing is separate from the company's browser-held delegate signing.
+
+Public invoice links act as bearer access and disclose client invoice data to anyone holding the URL. Plaintext owner keys in browser storage are vulnerable to XSS/extensions; losing all backups loses control. Historical supplier memos may expose descriptions; new supplier calls use an opaque payment ID. This review is not a production security audit. See docs/AUDIT.md for unresolved invoice binding, sponsor and batch limitations.

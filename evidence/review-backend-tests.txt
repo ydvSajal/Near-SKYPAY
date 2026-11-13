@@ -1,0 +1,46 @@
+✔ invoice email lists line items, links to checkout, escapes customer text (1.7219ms)
+✔ receipt email shows amount, UTC time and explorer link (0.2079ms)
+✔ A04: dry EXACT_OUTPUT quote; destination and amount come from the invoice only (0.334ms)
+✔ A04/A05: unpayable invoices, unknown assets and missing refund addresses are refused (0.3855ms)
+✔ A20: provider down or wrong amount is reported as unavailable, never as a quote (0.7685ms)
+✔ quote validation refuses contradictory amounts, zero input and expired provider deadlines (0.4175ms)
+✔ money: integer base units, no float drift (0.3126ms)
+✔ A24: CSV neutralises spreadsheet formulas and quotes properly (0.1593ms)
+✔ A23: invoice CSV has fixed decimals, UTC times, tx link (0.3794ms)
+✔ A21/A22: relay sponsors only the owner policy and own-vault funding (0.754ms)
+✔ A06/A05: settlement verified from token events, not client claims (1.9507ms)
+✔ vault outcome mapping (0.1676ms)
+✔ sponsor validates owner method arguments before spending gas (0.183ms)
+✔ settlement rejects pending top-level and token receipt outcomes (0.0884ms)
+✔ rebuild removes only blocks SkyPay added, never the user's own (0.5754ms)
+✔ dashboard key figures come from the ledger; failed supplier payments are not "paid out" (0.3919ms)
+✔ empty workspace shows a placeholder, not an error (0.098ms)
+✔ batch validation: empty, too large, foreign payee, bad amounts (0.6034ms)
+✔ batch total above vault balance is refused before anything is paid (0.1484ms)
+✔ one refused item does not stop the batch: status partial, others settled (1.0189ms)
+✔ all settled = done, all refused = failed (0.4811ms)
+✔ updatePayee validates and only touches own payees (0.4129ms)
+✔ unexpected error mid-batch: batch is never left queued (0.3714ms)
+✔ removing a payee queues the Notion row removal with the account (0.1862ms)
+✔ payroll: same run name cannot be paid twice; default name is the month (0.5909ms)
+✔ employee fields: kind, role, pay validated and stored in base units (0.2454ms)
+✔ invoice commits exact amount and delivery jobs together; queue failure rolls back (0.6286ms)
+✔ verified settlement and receipt jobs commit once; retry creates no financial duplicate (0.4206ms)
+✔ wrong active network/token cannot settle an old invoice (0.1436ms)
+✔ payment retries reject changed memo as well as changed amount (0.1548ms)
+✔ recovery keeps absent payments unknown and rejects mismatched chain evidence (0.2303ms)
+✔ restart worker reconciles persisted attempts and never dispatches (0.1463ms)
+✔ expired outbox claims are quarantined, never resent after ambiguous acceptance (0.1796ms)
+✔ CSV neutralizes formulas behind whitespace and newline control characters (0.0525ms)
+✔ generic execution or callback error after dispatch remains unknown (0.3031ms)
+✔ x402: payment delegate accepted only for an exact-shape ft_transfer to the receiver (0.2345ms)
+✔ x402: 402 requirements describe the invoice exactly (0.1343ms)
+✔ x402: X-PAYMENT header decoding (0.2051ms)
+ℹ tests 38
+ℹ suites 0
+ℹ pass 38
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 222.5723

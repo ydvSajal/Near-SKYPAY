@@ -1,33 +1,33 @@
-# SkyPay testnet e2e  2026-11-13T06:48:01.254Z  token=skypay-tusdc-eb844b.testnet (TEST token, not real USDC)
-provisioned company=demo-0f862d.testnet vault=demo-0f862d-vault.testnet agent=demo-0f862d-agent.testnet
-  sponsor: account_create demo-0f862d.testnet
-  sponsor: account_create demo-0f862d-vault.testnet (vault contract deployed, all keys deleted)
-  sponsor: account_create demo-0f862d-agent.testnet (function-call key: demo-0f862d-vault.testnet.pay only)
-  sponsor: storage_deposit demo-0f862d.testnet registered on skypay-tusdc-eb844b.testnet
-company balance: 100 tUSDC
+# SkyPay testnet e2e  2026-11-13T20:18:04.003Z  token=skypay-tusdc-eb844b.testnet (TEST token, not real USDC)
+provisioned company=demo-eefc34.testnet vault=demo-eefc34-vault.testnet agent=demo-eefc34-agent.testnet
+  sponsor: account_create demo-eefc34.testnet
+  sponsor: account_create demo-eefc34-vault.testnet (vault contract deployed, all keys deleted)
+  sponsor: account_create demo-eefc34-agent.testnet (function-call key: demo-eefc34-vault.testnet.pay only)
+  sponsor: storage_deposit demo-eefc34.testnet registered on skypay-tusdc-eb844b.testnet
+company balance: 0 tUSDC
 
 ## owner policy via sponsored (gasless) delegate actions - owner holds 0 purchased NEAR
-add_payee skypay-pay-7ea1db.testnet: https://testnet.nearblocks.io/txns/wqmDyefgSJEUu3X7mZJ6WS2STn93si77z2YvaUUbaH1
-set_agent limits 50/tx 80/day: https://testnet.nearblocks.io/txns/GVYJSJDXyTbTF47y76UZv19zWHma8QKdo3H9NADGp1Z
-fund vault 90: https://testnet.nearblocks.io/txns/DcQLv6KPNMt1qfg7r7fhsDTFznkCiXuniYgMfYKeM3ck
-vault state: {"owner":"demo-0f862d.testnet","token":"skypay-tusdc-eb844b.testnet","available":"90000000","reserved":"0"}
+add_payee skypay-pay-3ff759.testnet: https://testnet.nearblocks.io/txns/ADALw1shjnjT21svjF4v9nqC2EEU8GQz91QPMgEJMjwm
+set_agent limits 50/tx 80/day: https://testnet.nearblocks.io/txns/JDEF2675njHFFFDNuShqnQRVzwoVKqzVgYCdY5wsiGmg
+fund vault 90: https://testnet.nearblocks.io/txns/5jps8cmJagjPDUiP8Uagfh1123ciUTBCFqYyKjQVCRPY
+vault state: {"owner":"demo-eefc34.testnet","token":"skypay-tusdc-eb844b.testnet","available":"90000000","reserved":"0"}
 
 ## agent payments (restricted function-call key, zero deposit)
-  pay e2e-1 30: ok  https://testnet.nearblocks.io/txns/3H9K1bKpW2NQrHUL5uo99iKQ8uotXEzC5bjkFoexCHc1
+  pay e2e-1 30: ok  https://testnet.nearblocks.io/txns/3NZwN9rH5HQqhH3W6vwbfeqg7ctn1jkWuR7UBV5Tqnfq
   payee balance: 30
-  pay e2e-1 30: ok  https://testnet.nearblocks.io/txns/8JHtiVyCGyUgZAoBMGkzGhVr3eMD4NgnRa8kYj3Q1zVR
+  pay e2e-1 30: ok  https://testnet.nearblocks.io/txns/53phLmKHfekwp7AaKVxnKYHC81kXTZ6q6P8UBFRY8o9h
   payee balance after replay: 30 (unchanged = no double spend)
   pay e2e-2 60: REFUSED -> Contract panicked: exceeds per-payment limit
-  pay e2e-3 50: ok  https://testnet.nearblocks.io/txns/4bJkA8JeBEBU6TaHVmEHih9imk1r5VRQoSCaXkSkaT23
+  pay e2e-3 50: ok  https://testnet.nearblocks.io/txns/HsdBNzrsxdFpYFxmMb28JfVeQTpiwYXKCwEWRiRT3hyQ
   pay e2e-4 1: REFUSED -> Contract panicked: exceeds daily limit
-  payment record e2e-1: {"request_hash":"230d4228b539877530fbf58895c821eab13fd178b0b7e0384c207181c668dc78","agent":"demo-0f862d-agent.testnet","recipient":"skypay-pay-7ea1db.testnet","amount":"30000000","invoice_ref":"INV-E2E","status":"Settled","day":20770}
+  payment record e2e-1: {"request_hash":"e15e6121bc2563bff0e39d338f9f035c2172009792f887d39885b3d9ec9b6894","agent":"demo-eefc34-agent.testnet","recipient":"skypay-pay-3ff759.testnet","amount":"30000000","invoice_ref":"INV-E2E","status":"Settled","day":20770}
 
 ## sponsor refuses abuse (A22)
   [transfer NEAR out] REFUSED -> relay refused: only function calls can be sponsored
   [call unlisted contract] REFUSED -> relay refused: token method not sponsored: mint
   [fund someone else] REFUSED -> relay refused: funds may only be sent to the company vault
   [add full-access key] REFUSED -> relay refused: only function calls can be sponsored
-  [revoke agent (allowed)] relayed tx rLyi2owH3GjmdTm7xEUaUnym2RhdbfX4kwtx2Utrxqh
+  [revoke agent (allowed)] relayed tx EiEufwkNWYuo5B8d6NQf4KPitvCzjaKbJVKm1rxAf2gu
   pay e2e-5 1: REFUSED -> Contract panicked: agent revoked
 
-final vault state: {"owner":"demo-0f862d.testnet","token":"skypay-tusdc-eb844b.testnet","available":"10000000","reserved":"0"}
+final vault state: {"owner":"demo-eefc34.testnet","token":"skypay-tusdc-eb844b.testnet","available":"10000000","reserved":"0"}

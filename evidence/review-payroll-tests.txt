@@ -1,0 +1,13 @@
+✔ template parses: quoted comma in name, blank email (1.9708ms)
+✔ loose headers, title row above header, xlsx-style number cells (0.2231ms)
+✔ invalid rows are flagged with reasons, duplicates point at the first line (0.3135ms)
+✔ missing columns, empty sheet and too many rows give readable errors (1.0271ms)
+✔ semicolon CSV and exact decimal totals (0.2359ms)
+ℹ tests 5
+ℹ suites 0
+ℹ pass 5
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 45.6841

@@ -8,6 +8,7 @@
 //   { txHash, sender }       payer already sent the transfer; we only read the chain
 // Settlement truth is always chain data via SkyPay.confirmInvoicePayment (token events, receiver, amount, once).
 import express from 'express';
+import { invoiceMemos } from './skypay.js';
 
 export const X402_VERSION = 1;
 const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64');
@@ -51,11 +52,11 @@ export function createX402Router({ prisma, near, skypay, baseUrl, appUrl }) {
     const p = payment.payload;
     try {
       if (p.signedDelegate) {
-        const parsed = await near.checkPaymentDelegateB64(p.signedDelegate, { payTo: inv.receiver, minAmount: inv.amount });
+        const parsed = await near.checkPaymentDelegateB64(p.signedDelegate, { payTo: inv.receiver, minAmount: inv.amount, memos: invoiceMemos(inv) });
         return { isValid: true, payer: parsed.d.senderId, parsed };
       }
       if (p.txHash) {
-        const v = await near.verifyTokenReceipt({ txHash: p.txHash, senderHint: p.sender, receiver: inv.receiver, minAmount: inv.amount });
+        const v = await near.verifyTokenReceipt({ txHash: p.txHash, senderHint: p.sender, receiver: inv.receiver, minAmount: inv.amount, memos: invoiceMemos(inv) });
         return v.ok ? { isValid: true, payer: v.from } : { isValid: false, invalidReason: v.reason };
       }
     } catch (e) {

@@ -27,6 +27,7 @@ function setup({ available = '100000000', refuse = [], dbDownAt = -1 } = {}) {
       update: async ({ where, data }) => Object.assign(attempts.find((a) => a.id === where.id), data),
     },
     payoutBatch: {
+      findFirst: async ({ where }) => batches.find((b) => b.userId === where.userId && b.kind === where.kind && b.label === where.label && where.status.in.includes(b.status)) || null,
       create: async ({ data }) => { const b = { id: `b${batches.length}`, ...data }; batches.push(b); return b; },
       update: async ({ where, data }) => Object.assign(batches.find((b) => b.id === where.id), data),
     },
@@ -98,4 +99,26 @@ test('removing a payee queues the Notion row removal with the account', async ()
   await sp.removePayee('u1', 'p1');
   assert.deepEqual(jobs.find((j) => j.kind === 'notion_payee_remove').payload, { nearAccount: 'acme.testnet' });
   await assert.rejects(sp.removePayee('u1', 'px'), { status: 404 });
+});
+
+test('payroll: same run name cannot be paid twice; default name is the month', async () => {
+  const { sp, batches } = setup();
+  const first = await sp.payBatch('u1', { kind: 'payroll', items: [item('p1')] });
+  assert.match(first.batch.label, /^Payroll \d{4}-\d{2}$/);
+  assert.equal(first.batch.kind, 'payroll');
+  await assert.rejects(sp.payBatch('u1', { kind: 'payroll', items: [item('p1')] }), { status: 409 });
+  await sp.payBatch('u1', { kind: 'payroll', label: 'Bonus Nov', items: [item('p1')] }); // different name is allowed
+  batches[0].status = 'failed'; // a fully failed run may be retried under the same name
+  await sp.payBatch('u1', { kind: 'payroll', items: [item('p1')] });
+  assert.equal((await sp.payBatch('u1', { items: [item('p1')] })).batch.kind, 'payout'); // supplier batches have no such guard
+});
+
+test('employee fields: kind, role, pay validated and stored in base units', async () => {
+  const { sp } = setup();
+  const e = await sp.updatePayee('u1', 'p1', { kind: 'employee', role: 'Designer', salary: '1200.5' });
+  assert.deepEqual([e.kind, e.role, e.salary], ['employee', 'Designer', '1200500000']);
+  await assert.rejects(sp.updatePayee('u1', 'p1', { kind: 'boss' }), { status: 400 });
+  await assert.rejects(sp.updatePayee('u1', 'p1', { salary: 'lots' }), { status: 400 });
+  await assert.rejects(sp.updatePayee('u1', 'p1', { salary: '0' }), { status: 400 });
+  assert.equal((await sp.updatePayee('u1', 'p1', { salary: '' })).salary, null);
 });

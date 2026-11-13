@@ -40,3 +40,16 @@ test('A20: provider down or wrong amount is reported as unavailable, never as a 
   assert.equal(ok.amountIn, '10103045');
   await assert.rejects(dryQuote(inv, input, fake({ amountIn: '1', amountOut: '9000000', minAmountOut: '9000000' })), /unavailable/);
 });
+
+
+test('quote validation refuses contradictory amounts, zero input and expired provider deadlines', async () => {
+  for (const quote of [
+    { amountIn: '1', amountOut: '9', minAmountOut: inv.amount },
+    { amountIn: '0', amountOut: inv.amount },
+    { amountIn: '1', amountOut: inv.amount, minAmountOut: '1' },
+    { amountIn: '1', amountOut: inv.amount, deadline: '2000-01-01T00:00:00Z' },
+    { amountIn: '1', amountOut: inv.amount, deadline: 'invalid' },
+  ]) {
+    await assert.rejects(dryQuote(inv, input, async () => ({ ok: true, status: 200, json: async () => ({ quote }) })), /unavailable/);
+  }
+});

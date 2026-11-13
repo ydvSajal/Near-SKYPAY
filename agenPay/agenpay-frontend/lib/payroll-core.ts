@@ -2,20 +2,21 @@
 // The sheet only fills a preview: nothing here registers payees or moves money.
 
 export type Cell = unknown // xlsx cells are string | number | boolean | Date | null
-export interface PayrollRow { line: number; name: string; nearAccount: string; email: string; amount: string; memo: string; errors: string[] }
+export interface PayrollRow { line: number; name: string; nearAccount: string; email: string; amount: string; role: string; memo: string; errors: string[] }
 
 export const MAX_ROWS = 25 // matches the backend batch cap
 const NEAR_ACCOUNT = /^(?=.{2,64}$)(([a-z\d]+[-_])*[a-z\d]+\.)*([a-z\d]+[-_])*[a-z\d]+$/
 const AMOUNT = /^\d+(\.\d{1,6})?$/
 const EMAIL = /^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/
 
-type Field = "email" | "nearAccount" | "amount" | "memo" | "name"
+type Field = "email" | "nearAccount" | "amount" | "role" | "memo" | "name"
 // Checked in this order; each column goes to the first field that matches ("email address" is email, not account).
 const FIELDS: [Field, RegExp][] = [
   ["email", /mail/],
   ["nearAccount", /near|wallet|account|address/],
   ["amount", /^(amount|amountusdc|usdc|salary|pay|payment|payout|total|sum)$/],
-  ["memo", /memo|note|role|description|reference|ref|info|purpose|details/],
+  ["role", /^(role|title|jobtitle|position|designation|department)$/],
+  ["memo", /memo|note|description|reference|ref|info|purpose|details/],
   ["name", /^(name|employee|employeename|fullname|payee|payeename|supplier|vendor)$/],
 ]
 const norm = (s: Cell) => String(s ?? "").toLowerCase().replace(/[^a-z]/g, "")
@@ -79,7 +80,7 @@ export function toPayrollRows(table: Cell[][]): PayrollRow[] {
     if (email && !EMAIL.test(email)) errors.push(`email "${email}" looks wrong`)
     if (seen.has(nearAccount)) errors.push(`same account as line ${seen.get(nearAccount)}`)
     else if (nearAccount) seen.set(nearAccount, line)
-    out.push({ line, name: get(r, "name") || nearAccount, nearAccount, email, amount, memo: get(r, "memo").slice(0, 120), errors })
+    out.push({ line, name: get(r, "name") || nearAccount, nearAccount, email, amount, role: get(r, "role").slice(0, 80), memo: get(r, "memo").slice(0, 120), errors })
   })
   if (!out.length) throw new Error("The sheet has a header but no rows.")
   if (out.length > MAX_ROWS) throw new Error(`The sheet has ${out.length} rows; one payout run can pay up to ${MAX_ROWS}. Split it into several files.`)
@@ -96,4 +97,4 @@ export function sumAmounts(xs: string[]): string {
   return `${base / M}.${(base % M).toString().padStart(6, "0")}`.replace(/\.?0+$/, "")
 }
 
-export const TEMPLATE_CSV = 'Name,NEAR account,Email,Amount,Memo\r\nAsha Rao,asha.testnet,asha@example.com,12.5,November salary\r\n"Lee, Sam",sam-lee.testnet,,8,Contractor invoice 114\r\n'
+export const TEMPLATE_CSV = 'Name,Role,NEAR account,Email,Amount,Memo\r\nAsha Rao,Designer,asha.testnet,asha@example.com,12.5,November salary\r\n"Lee, Sam",Engineer,sam-lee.testnet,,8,November salary\r\n'

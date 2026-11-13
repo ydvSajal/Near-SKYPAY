@@ -29,7 +29,7 @@ export async function sourceAssets(fetchImpl = fetch) {
   if (cache.list && Date.now() - cache.at < 600_000) return cache.list;
   const all = await call('/tokens', {}, fetchImpl);
   const list = all
-    .filter((t) => t.blockchain !== 'near' && t.assetId && Number.isInteger(t.decimals))
+    .filter((t) => t.blockchain !== 'near' && t.assetId && Number.isInteger(t.decimals) && t.decimals >= 0 && t.decimals <= 38)
     .map(({ assetId, symbol, blockchain, decimals }) => ({ assetId, symbol, blockchain, decimals }))
     .sort((a, b) => a.blockchain.localeCompare(b.blockchain) || a.symbol.localeCompare(b.symbol));
   cache = { at: Date.now(), list };
@@ -73,7 +73,12 @@ export async function dryQuote(invoice, input, fetchImpl = fetch) {
   const { origin, mainnet, body } = buildQuoteRequest(invoice, input, { assets });
   const r = await call('/quote', { method: 'POST', body: JSON.stringify(body) }, fetchImpl);
   const q = r.quote || {};
-  if (q.amountOut !== body.amount && q.minAmountOut !== body.amount) throw unavailable('quote does not deliver the invoice amount');
+  if (q.amountOut !== body.amount || !/^[1-9]\d*$/.test(String(q.amountIn || '')) ||
+      (q.minAmountOut !== undefined && (!/^\d+$/.test(String(q.minAmountOut)) || BigInt(q.minAmountOut) < BigInt(body.amount)))) {
+    throw unavailable('quote does not deliver the invoice amount');
+  }
+  const deadlineMs = Math.min(Date.parse(body.deadline), q.deadline ? Date.parse(q.deadline) : Infinity);
+  if (!Number.isFinite(deadlineMs) || deadlineMs <= Date.now()) throw unavailable('quote expired or has an invalid deadline');
   return {
     mode: 'dry-quote',
     executable: false,
@@ -86,6 +91,6 @@ export async function dryQuote(invoice, input, fetchImpl = fetch) {
     amountOut: q.amountOut, amountOutFormatted: q.amountOutFormatted, amountOutUsd: q.amountOutUsd,
     timeEstimateSec: q.timeEstimate, refundFee: q.refundFee,
     appFees: r.quoteRequest?.appFees || [],
-    deadline: body.deadline, quotedAt: r.timestamp, correlationId: r.correlationId,
+    deadline: new Date(deadlineMs).toISOString(), quotedAt: r.timestamp, correlationId: r.correlationId,
   };
 }
