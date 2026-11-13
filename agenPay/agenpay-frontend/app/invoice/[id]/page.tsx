@@ -171,10 +171,10 @@ export default function InvoicePage() {
     load()
   }, [load])
 
-  // keep status live while unpaid
+  // keep status live while unpaid (also catches a payment made in another tab or wallet)
   useEffect(() => {
     if (inv?.status !== "pending") return
-    const t = setInterval(load, 8000)
+    const t = setInterval(load, 2000) // live: flips to Paid within 2 s of settlement
     return () => clearInterval(t)
   }, [inv?.status, load])
 

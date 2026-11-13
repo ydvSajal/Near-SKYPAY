@@ -45,6 +45,28 @@ const PROMPTS = [
   { label: "Summary", text: "Summarize my finances" },
 ]
 
+/** Minimal, safe markdown for agent replies: **bold**, [text](http(s) url), bare http(s) urls, "* " bullets. React nodes only. */
+function renderChat(text: string): React.ReactNode[] {
+  const re = /\*\*([^*]+)\*\*|\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s)]+)/g
+  return text.replace(/^[ \t]*[*-] /gm, "• ").split("\n").flatMap((line, li, all) => {
+    const out: React.ReactNode[] = []
+    let last = 0
+    for (const m of line.matchAll(re)) {
+      if (m.index! > last) out.push(line.slice(last, m.index))
+      const key = `${li}-${m.index}`
+      if (m[1]) out.push(<strong key={key}>{m[1]}</strong>)
+      else {
+        const href = m[3] || m[4]
+        out.push(<a key={key} href={href} target="_blank" rel="noreferrer" className="underline underline-offset-2">{m[2] || href}</a>)
+      }
+      last = m.index! + m[0].length
+    }
+    if (last < line.length) out.push(line.slice(last))
+    if (li < all.length - 1) out.push("\n")
+    return out
+  })
+}
+
 function Panel({ className = "", children }: { className?: string; children: React.ReactNode }) {
   return <section className={`rounded-xl border border-border bg-card ${className}`}>{children}</section>
 }
@@ -78,8 +100,9 @@ export default function Dashboard() {
   const logRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  // silent = background poll: no spinner, and a failed poll keeps the last good data instead of flashing an error.
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     const [n, inv, pay, ag, ws] = await Promise.allSettled([
       authService.api<NearStatus>("/api/near/status"),
       authService.api<{ invoices: Invoice[] }>("/api/invoices").then((r) => r.invoices),
@@ -89,15 +112,29 @@ export default function Dashboard() {
         ? authService.api<{ data?: { notionConnected: boolean } }>(`/api/workspace-status/${user.id}`)
         : Promise.resolve({ data: { notionConnected: false } }),
     ])
-    setNear(settle(n))
-    setInvoices(settle(inv))
-    setPayments(settle(pay))
-    setAgent(settle(ag))
-    setNotionConnected(ws.status === "fulfilled" ? !!ws.value.data?.notionConnected : null)
-    setLoading(false)
+    const ok = (r: PromiseSettledResult<unknown>) => !silent || r.status === "fulfilled"
+    if (ok(n)) setNear(settle(n))
+    if (ok(inv)) setInvoices(settle(inv))
+    if (ok(pay)) setPayments(settle(pay))
+    if (ok(ag)) setAgent(settle(ag))
+    if (ws.status === "fulfilled") setNotionConnected(!!ws.value.data?.notionConnected)
+    else if (!silent) setNotionConnected(null)
+    if (!silent) setLoading(false)
   }, [user?.id])
 
   useEffect(() => { load() }, [load])
+
+  // Live updates: re-read everything every 2 s (hackathon demo: a payment shows up without a manual refresh).
+  useEffect(() => {
+    let inFlight = false
+    const tick = async () => {
+      if (inFlight || document.hidden) return
+      inFlight = true
+      try { await load(true) } finally { inFlight = false }
+    }
+    const t = setInterval(tick, 2000)
+    return () => clearInterval(t)
+  }, [load])
 
   // Keep the newest chat message in view (native scroll inside the panel).
   useEffect(() => {
@@ -183,11 +220,11 @@ export default function Dashboard() {
   ]
 
   return (
-    <div className="min-h-[100dvh] bg-background">
+    <div className="flex min-h-[100dvh] flex-col bg-background lg:h-[100dvh] lg:overflow-hidden">
       <AppHeader>
         <button
           type="button"
-          onClick={load}
+          onClick={() => load()}
           aria-label="Refresh data"
           className="press flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
         >
@@ -195,20 +232,20 @@ export default function Dashboard() {
         </button>
       </AppHeader>
 
-      <main className="mx-auto grid max-w-[1400px] gap-6 px-4 py-6 md:px-6 md:py-8">
+      <main className="mx-auto flex w-full max-w-[1400px] flex-1 flex-col gap-4 px-4 py-4 md:px-6 lg:min-h-0">
         {/* Title and primary actions */}
-        <div className="flex flex-wrap items-end justify-between gap-4">
+        <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-semibold tracking-[-0.02em]">Overview</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
+            <h1 className="text-xl font-semibold tracking-[-0.02em]">Overview</h1>
+            <p className="mt-0.5 text-sm text-muted-foreground">
               {n ? `NEAR ${n.network}. Amounts in ${token}${token === "tUSDC" ? " (test token, no value)" : ""}.` : "Your payments at a glance."}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Link href="/finance#pay" className="press inline-flex h-10 items-center gap-2 rounded-lg border border-border bg-card px-4 text-sm font-medium hover:bg-muted">
+            <Link href="/finance#pay" className="press inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-card px-4 text-sm font-medium hover:bg-muted">
               <ArrowUpRight className="h-4 w-4" /> Pay supplier
             </Link>
-            <Link href="/finance#invoices" className="press inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90">
+            <Link href="/finance#invoices" className="press inline-flex h-9 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90">
               <FileText className="h-4 w-4" /> New invoice
             </Link>
           </div>
@@ -227,20 +264,56 @@ export default function Dashboard() {
           </Panel>
         )}
 
+        {/* Accounts: always visible at the top */}
+        <Panel>
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-3 px-5 py-3 text-sm lg:grid-cols-4">
+            {[
+              ["Company", n?.company, n?.links?.company],
+              ["Vault", n?.vault, n?.links?.vault],
+              ["Agent", n?.agent, n?.links?.agent],
+            ].map(([label, id, href]) => (
+              <div key={label} className="min-w-0">
+                <dt className="text-xs text-muted-foreground">{label}</dt>
+                <dd className="mt-0.5 min-w-0">
+                  {id ? (
+                    <a href={href ?? undefined} target="_blank" rel="noreferrer" className="flex items-center gap-1 font-mono text-xs hover:underline">
+                      <span className="truncate">{id}</span><ExternalLink className="h-3 w-3 shrink-0" />
+                    </a>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">Not set up</span>
+                  )}
+                </dd>
+              </div>
+            ))}
+            <div className="min-w-0">
+              <dt className="text-xs text-muted-foreground">Notion</dt>
+              <dd className="mt-0.5">
+                {notionConnected ? (
+                  <StatusPill status="connected" />
+                ) : notionConnected === false ? (
+                  <button type="button" onClick={handleConnectNotion} className="text-xs font-medium text-primary underline-offset-4 hover:underline">Connect</button>
+                ) : (
+                  <span className="text-xs text-muted-foreground">Unknown</span>
+                )}
+              </dd>
+            </div>
+          </dl>
+        </Panel>
+
         {/* Balance ledger */}
         <Panel>
           {near.error ? (
-            <div className="p-4"><InlineError message={`Balances unavailable: ${near.error}`} onRetry={load} /></div>
+            <div className="p-4"><InlineError message={`Balances unavailable: ${near.error}`} onRetry={() => load()} /></div>
           ) : (
             <dl className="grid grid-cols-2 lg:grid-cols-4">
               {metrics.map((m, i) => (
-                <div key={m.label} className={`min-w-0 p-5 md:p-6 ${i % 2 === 1 ? "border-l border-border" : ""} ${i >= 2 ? "border-t border-border lg:border-t-0" : ""} ${i === 2 ? "lg:border-l" : ""}`}>
+                <div key={m.label} className={`min-w-0 px-5 py-3 ${i % 2 === 1 ? "border-l border-border" : ""} ${i >= 2 ? "border-t border-border lg:border-t-0" : ""} ${i === 2 ? "lg:border-l" : ""}`}>
                   <dt className="text-sm text-muted-foreground">{m.label}</dt>
-                  <dd className="mt-2">
+                  <dd className="mt-1">
                     {loading && !n ? (
                       <span className="skeleton block h-8 w-28" />
                     ) : (
-                      <span className={`tabular font-semibold tracking-[-0.02em] ${m.primary ? "text-3xl" : "text-2xl"}`}>
+                      <span className={`tabular font-semibold tracking-[-0.02em] ${m.primary ? "text-2xl" : "text-xl"}`}>
                         {m.value ?? "0.00"} <span className="text-sm font-medium text-muted-foreground">{token}</span>
                       </span>
                     )}
@@ -252,10 +325,10 @@ export default function Dashboard() {
           )}
         </Panel>
 
-        <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_420px]">
+        <div className="grid gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_420px]">
           {/* Activity */}
-          <Panel className="order-2 min-w-0 lg:order-1">
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-4">
+          <Panel className="order-2 flex min-w-0 flex-col lg:order-1 lg:min-h-0">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-3">
               <h2 className="font-semibold">Activity</h2>
               <div role="group" aria-label="Filter activity" className="flex rounded-lg bg-muted p-1">
                 {([["all", "All"], ["in", "Invoices"], ["out", "Supplier payments"]] as const).map(([k, l]) => (
@@ -272,7 +345,7 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {activityError && <div className="p-4"><InlineError message={`Some activity could not load: ${activityError}`} onRetry={load} /></div>}
+            {activityError && <div className="p-4"><InlineError message={`Some activity could not load: ${activityError}`} onRetry={() => load()} /></div>}
 
             {loading && !invoices.data && !payments.data ? (
               <ul className="divide-y divide-border" aria-label="Loading activity">
@@ -296,7 +369,7 @@ export default function Dashboard() {
                 </Link>
               </div>
             ) : (
-              <ul className="divide-y divide-border">
+              <ul className="min-h-0 flex-1 divide-y divide-border overflow-y-auto">
                 {activity.map((a) => (
                   <li key={`${a.incoming ? "i" : "o"}-${a.id}`} className="flex items-center gap-4 px-5 py-3.5">
                     <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${a.incoming ? "bg-success/10 text-success" : "bg-muted text-muted-foreground"}`}>
@@ -327,9 +400,9 @@ export default function Dashboard() {
           </Panel>
 
           {/* Agent and accounts */}
-          <div className="order-1 grid min-w-0 gap-6 lg:order-2">
-            <Panel className="flex h-[560px] flex-col">
-              <div className="flex items-center justify-between gap-3 border-b border-border px-5 py-4">
+          <div className="order-1 min-w-0 lg:order-2 lg:min-h-0">
+            <Panel className="flex h-[520px] flex-col lg:h-full">
+              <div className="flex items-center justify-between gap-3 border-b border-border px-5 py-3">
                 <div className="flex items-center gap-2">
                   <Bot className="h-4 w-4 text-primary" />
                   <h2 className="font-semibold">Payment agent</h2>
@@ -368,7 +441,7 @@ export default function Dashboard() {
                 {chatHistory.map((msg, i) => (
                   <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
                     <div className={`max-w-[88%] rounded-xl px-3.5 py-2.5 text-sm ${msg.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted text-foreground"}`}>
-                      <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
+                      <p className="whitespace-pre-wrap break-words leading-relaxed">{renderChat(msg.content)}</p>
                       <p className={`mt-1 text-[11px] ${msg.role === "user" ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
                         {msg.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                       </p>
@@ -407,45 +480,6 @@ export default function Dashboard() {
                   </button>
                 </div>
               </form>
-            </Panel>
-
-            <Panel className="p-5">
-              <h2 className="font-semibold">Accounts</h2>
-              <dl className="mt-4 grid gap-3 text-sm">
-                {[
-                  ["Company", n?.company, n?.links?.company],
-                  ["Vault", n?.vault, n?.links?.vault],
-                  ["Agent", n?.agent, n?.links?.agent],
-                ].map(([label, id, href]) => (
-                  <div key={label} className="flex items-center justify-between gap-3">
-                    <dt className="text-muted-foreground">{label}</dt>
-                    <dd className="min-w-0">
-                      {id ? (
-                        <a href={href ?? undefined} target="_blank" rel="noreferrer" className="flex items-center gap-1 font-mono text-xs hover:underline">
-                          <span className="truncate">{id}</span><ExternalLink className="h-3 w-3 shrink-0" />
-                        </a>
-                      ) : (
-                        <span className="text-muted-foreground">Not set up</span>
-                      )}
-                    </dd>
-                  </div>
-                ))}
-                <div className="flex items-center justify-between gap-3 border-t border-border pt-3">
-                  <dt className="text-muted-foreground">Notion</dt>
-                  <dd>
-                    {notionConnected ? (
-                      <StatusPill status="connected" />
-                    ) : notionConnected === false ? (
-                      <button type="button" onClick={handleConnectNotion} className="text-sm font-medium text-primary underline-offset-4 hover:underline">Connect</button>
-                    ) : (
-                      <span className="text-muted-foreground">Unknown</span>
-                    )}
-                  </dd>
-                </div>
-              </dl>
-              {agent.data?.lastActivity && (
-                <p className="mt-4 text-xs text-muted-foreground">Agent last active {new Date(agent.data.lastActivity).toLocaleString()}</p>
-              )}
             </Panel>
           </div>
         </div>

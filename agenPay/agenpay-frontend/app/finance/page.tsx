@@ -102,6 +102,17 @@ export default function FinancePage() {
 
   useEffect(() => { reload() }, [reload])
 
+  // Live updates every 2 s; a failed poll keeps the last good data.
+  useEffect(() => {
+    let inFlight = false
+    const t = setInterval(async () => {
+      if (inFlight || document.hidden) return
+      inFlight = true
+      try { await load() } catch {} finally { inFlight = false }
+    }, 2000)
+    return () => clearInterval(t)
+  }, [load])
+
   // Arriving from a dashboard shortcut: scroll once content exists.
   useEffect(() => {
     if (st?.company && window.location.hash) document.querySelector(window.location.hash)?.scrollIntoView()

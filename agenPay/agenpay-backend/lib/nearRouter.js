@@ -16,6 +16,7 @@ const wrap = (fn) => (req, res) =>
 export function createNearRouter({ prisma, near, skypay, authenticateToken }) {
   const r = express.Router();
   const publicLimiter = rateLimit({ windowMs: 60_000, max: 20, standardHeaders: true, legacyHeaders: false });
+  const pollLimiter = rateLimit({ windowMs: 60_000, max: 90, standardHeaders: true, legacyHeaders: false }); // checkout page polls every 2 s
   const me = (req) => skypay.user(req.user.id);
   const x402Base = (process.env.BASE_URL || `http://localhost:${process.env.PORT || 3001}`).replace(/[/]$/, '');
   const isTestToken = process.env.NEAR_USDC_IS_TEST_TOKEN === 'true';
@@ -127,7 +128,7 @@ export function createNearRouter({ prisma, near, skypay, authenticateToken }) {
   }));
 
   // public checkout data: no secrets, no other invoices, no customer list
-  r.get('/api/public/invoices/:id', publicLimiter, wrap(async (req, res) => {
+  r.get('/api/public/invoices/:id', pollLimiter, wrap(async (req, res) => {
     const i = await prisma.invoice.findUnique({ where: { id: req.params.id }, include: { user: { select: { name: true, email: true } } } });
     if (!i) return res.status(404).json({ error: 'invoice not found' });
     res.json({
