@@ -13,6 +13,8 @@ interface PublicInvoice {
   id: string
   number: string
   merchant: string
+  seller?: { name: string; address: string | null; country: string | null; taxId: string | null; email: string; notes: string | null }
+  customerEmail?: string
   customerName: string | null
   description: string | null
   lineItems: Array<{ description: string; quantity: number; unitAmount: string; unitFormatted: string }>
@@ -283,7 +285,16 @@ export default function InvoicePage() {
             <div>
               <p className="text-xs font-medium text-slate-500">Invoice {inv.number} from</p>
               <h1 className="text-xl font-semibold">{inv.merchant}</h1>
-              {inv.customerName && <p className="mt-1 text-sm text-slate-500">Billed to {inv.customerName}</p>}
+              {inv.seller && (
+                <p className="mt-0.5 text-xs leading-relaxed text-slate-500">
+                  {[inv.seller.address, inv.seller.country].filter(Boolean).join(", ")}
+                  {inv.seller.taxId && <><br />Tax ID {inv.seller.taxId}</>}
+                  <br />{inv.seller.email}
+                </p>
+              )}
+              {(inv.customerName || inv.customerEmail) && (
+                <p className="mt-2 text-sm text-slate-500">Billed to {[inv.customerName, inv.customerEmail].filter(Boolean).join(" · ")}</p>
+              )}
             </div>
             <StatusPill status={inv.status} />
           </div>
@@ -317,6 +328,7 @@ export default function InvoicePage() {
             <div className="text-xs text-slate-500">
               <p>Issued {fmtDate(inv.createdAt)}</p>
               <p>Due {fmtDate(inv.dueDate)}</p>
+              {inv.seller?.notes && <p className="mt-1 max-w-xs text-slate-600">{inv.seller.notes}</p>}
             </div>
             <div className="text-right">
               <p className="text-xs text-slate-500">Total due</p>

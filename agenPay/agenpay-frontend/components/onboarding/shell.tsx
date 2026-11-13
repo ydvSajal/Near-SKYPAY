@@ -2,10 +2,11 @@ import Link from "next/link"
 import { Check } from "lucide-react"
 import { Logo } from "@/components/brand/logo"
 
-export type StepId = "account" | "notion" | "near"
+export type StepId = "account" | "business" | "notion" | "near"
 
 const STEPS: { id: StepId; title: string; desc: string }[] = [
   { id: "account", title: "Your account", desc: "Email and password for the workspace." },
+  { id: "business", title: "Business details", desc: "The seller name, address and tax number on your invoices." },
   { id: "notion", title: "Connect Notion", desc: "Optional. Invoices sync to a database you own." },
   { id: "near", title: "NEAR account", desc: "Sponsored company account, vault and agent key." },
 ]
@@ -27,7 +28,7 @@ export function OnboardingShell({ step, children }: { step: StepId; children: Re
           <p className="text-sm text-muted-foreground">
             Step {current + 1} of {STEPS.length}: <span className="font-medium text-foreground">{STEPS[current].title}</span>
           </p>
-          <div className="mt-3 grid grid-cols-3 gap-1.5" aria-hidden>
+          <div className="mt-3 grid grid-cols-4 gap-1.5" aria-hidden>
             {STEPS.map((s, i) => (
               <span key={s.id} className={`h-1 rounded-full ${i <= current ? "bg-primary" : "bg-border"}`} />
             ))}

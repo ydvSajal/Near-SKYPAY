@@ -5,14 +5,15 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
 import { authService } from "@/lib/auth"
 import { ensureOwnerKey, downloadOwnerKeyBackup } from "@/lib/near"
+import { BusinessForm } from "@/components/app/business-form"
 import { OnboardingShell, StepPanel, type StepId } from "@/components/onboarding/shell"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   AlertCircle, ArrowRight, Check, CheckCircle2, Database, Download, Eye, EyeOff, KeyRound, Loader2, ShieldCheck, Vault,
 } from "lucide-react"
 
-type Step = "auth" | "notion" | "near"
-const STEP_ID: Record<Step, StepId> = { auth: "account", notion: "notion", near: "near" }
+type Step = "auth" | "business" | "notion" | "near"
+const STEP_ID: Record<Step, StepId> = { auth: "account", business: "business", notion: "notion", near: "near" }
 const MIN_PASSWORD = 8 // matches the backend rule in /api/auth/register
 
 // Only same-site paths are allowed as post-login destinations.
@@ -64,13 +65,14 @@ function AuthPageContent() {
 
   useEffect(() => {
     const urlStep = searchParams.get("step")
-    if (urlStep === "auth" || urlStep === "notion" || urlStep === "near") setStep(urlStep)
+    if (urlStep === "auth" || urlStep === "business" || urlStep === "notion" || urlStep === "near") setStep(urlStep)
   }, [searchParams])
 
   useEffect(() => {
     if (!isAuthenticated || !user) return
-    const { hasNotionIntegration, hasNearAccount } = user
+    const { hasNotionIntegration, hasNearAccount, companyName } = user
     if (hasNearAccount && step === "auth") router.push(redirectTo)
+    else if (!companyName && step === "auth") setStep("business")
     else if (!hasNotionIntegration && step === "auth") setStep("notion")
     else if (hasNotionIntegration && !hasNearAccount && step === "auth") setStep("near")
   }, [isAuthenticated, user, router, step, redirectTo])
@@ -113,7 +115,7 @@ function AuthPageContent() {
     setError("")
     try {
       const result = await register(formData.email.trim(), formData.password, formData.name.trim())
-      if (result.success) setStep("notion")
+      if (result.success) setStep("business")
       else setError(result.error || "Registration failed. Try again.")
     } catch {
       setError("We could not reach SKYPay. Check your connection and try again.")
@@ -208,6 +210,17 @@ function AuthPageContent() {
               </form>
             </TabsContent>
           </Tabs>
+        </StepPanel>
+      </OnboardingShell>
+    )
+  }
+
+  if (step === "business") {
+    return (
+      <OnboardingShell step={STEP_ID.business}>
+        <StepPanel title="Your business details" description="These appear as the seller on every invoice and invoice email. You can change them later in Finance, under Company.">
+          <BusinessForm submitLabel="Save and continue" onSaved={() => setStep("notion")} />
+          <button type="button" onClick={() => setStep("notion")} className={`${secondary} mt-3`}>Skip for now</button>
         </StepPanel>
       </OnboardingShell>
     )

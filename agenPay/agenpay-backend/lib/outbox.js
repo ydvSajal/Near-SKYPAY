@@ -2,7 +2,7 @@
 // are idempotent by key, retried with backoff, and never change financial truth (A03, A07, A20).
 import nodemailer from 'nodemailer';
 import { NotionService } from './NotionService.js';
-import { refreshDashboard } from './notionDashboard.js';
+import { refreshDashboard, clearDashboard } from './notionDashboard.js';
 import { formatUnits } from './near/units.js';
 
 const MAX_ATTEMPTS = 6;
@@ -76,9 +76,11 @@ export class Outbox {
     const svc = new NotionService(user.notionApiKey);
     if (!user.notionWorkspaceId || force) {
       const old = user.notionWorkspaceId;
-      await svc.completeIntegration(userId, user.notionApiKey);
-      // force = redesign/rebuild: move our previous workspace page to Notion's trash (recoverable) so only one remains
-      if (force && old) await svc.notion.pages.update({ page_id: old, archived: true }).catch((e) => console.error('archive old workspace:', e.message));
+      // force = redesign/rebuild: remove only the blocks SkyPay added (to Notion trash, recoverable)
+      if (force) await clearDashboard(svc.notion, this.prisma, userId);
+      const { workspacePageId } = await svc.completeIntegration(userId, user.notionApiKey);
+      // legacy layout had its own "SkyPay" child page: trash it. Never the shared page itself (old === new).
+      if (force && old && old !== workspacePageId) await svc.notion.pages.update({ page_id: old, archived: true }).catch((e) => console.error('archive old workspace:', e.message));
     }
     const invoices = await this.prisma.invoice.findMany({ where: { userId }, select: { id: true } });
     // a fresh key per setup: a rebuilt workspace needs every row again
@@ -139,7 +141,8 @@ export class Outbox {
   }
 
   invoiceMail(i) {
-    const merchant = i.user.name || i.user.email;
+    const s = i.seller || {};
+    const merchant = s.name || i.user.companyName || i.user.name || i.user.email;
     const due = i.dueDate.toISOString().slice(0, 10);
     const cell = 'padding:8px 0;border-bottom:1px solid #eef0f2;font-size:14px';
     const rows = (Array.isArray(i.lineItems) ? i.lineItems : []).map((li) => `<tr>
@@ -147,7 +150,8 @@ export class Outbox {
       <td style="${cell};text-align:right">${esc(formatUnits(li.unitAmount, i.decimals))}</td>
       <td style="${cell};text-align:right">${esc(formatUnits((BigInt(li.unitAmount) * BigInt(li.quantity)).toString(), i.decimals))}</td></tr>`).join('');
     const body = `<p style="margin:0 0 4px;color:#6b7280;font-size:13px">Invoice ${esc(i.number)} from</p>
-      <p style="margin:0 0 16px;font-size:16px;font-weight:600">${esc(merchant)}</p>
+      <p style="margin:0 0 ${s.address || s.taxId ? 2 : 16}px;font-size:16px;font-weight:600">${esc(merchant)}</p>
+      ${s.address || s.taxId ? `<p style="margin:0 0 16px;font-size:12px;color:#6b7280">${esc([s.address, s.country, s.taxId && `Tax ID ${s.taxId}`].filter(Boolean).join(' · '))}</p>` : ''}
       ${i.description ? `<p style="margin:0 0 16px;font-size:14px">${esc(i.description)}</p>` : ''}
       <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse"><tr style="font-size:12px;color:#6b7280;text-align:left">
         <th style="padding:6px 0">Item</th><th style="text-align:right">Qty</th><th style="text-align:right">Unit</th><th style="text-align:right">Amount</th></tr>${rows}</table>
@@ -155,6 +159,7 @@ export class Outbox {
       <p style="margin:0;text-align:right;font-size:26px;font-weight:700">${esc(this.money(i))}</p>
       <p style="margin:8px 0 0;text-align:right;font-size:13px;color:#6b7280">Due ${due}</p>
       ${this.button(this.link(i), 'Pay invoice')}
+      ${s.notes ? `<p style="margin:0 0 12px;font-size:13px;color:#374151">${esc(s.notes)}</p>` : ''}
       <p style="margin:0;font-size:12px;color:#6b7280">Button not working? Open ${esc(this.link(i))}</p>`;
     return [`Invoice ${i.number} from ${merchant}: ${this.money(i)} due ${due}`, this.layout(`Invoice ${esc(i.number)}`, body, this.footer(i))];
   }

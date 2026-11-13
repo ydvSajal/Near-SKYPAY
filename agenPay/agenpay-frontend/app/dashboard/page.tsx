@@ -99,6 +99,13 @@ export default function Dashboard() {
   const [agentBusy, setAgentBusy] = useState(false)
   const logRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  // grow the message box with its text (capped by max-h-32) so long prompts are not clipped
+  useEffect(() => {
+    const el = inputRef.current
+    if (!el) return
+    el.style.height = "auto"
+    el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`
+  }, [message])
 
   // silent = background poll: no spinner, and a failed poll keeps the last good data instead of flashing an error.
   const load = useCallback(async (silent = false) => {

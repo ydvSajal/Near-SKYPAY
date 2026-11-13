@@ -6,6 +6,7 @@ import rateLimit from 'express-rate-limit';
 import { formatUnits, parseUnits } from './near/units.js';
 import { invoicesCsv, paymentsCsv } from './csvExport.js';
 import { dryQuote, sourceAssets } from './intents.js';
+import { sellerOf } from './skypay.js';
 
 const wrap = (fn) => (req, res) =>
   fn(req, res).catch((e) => {
@@ -129,10 +130,11 @@ export function createNearRouter({ prisma, near, skypay, authenticateToken }) {
 
   // public checkout data: no secrets, no other invoices, no customer list
   r.get('/api/public/invoices/:id', pollLimiter, wrap(async (req, res) => {
-    const i = await prisma.invoice.findUnique({ where: { id: req.params.id }, include: { user: { select: { name: true, email: true } } } });
+    const i = await prisma.invoice.findUnique({ where: { id: req.params.id }, include: { user: true } });
     if (!i) return res.status(404).json({ error: 'invoice not found' });
+    const seller = i.seller || sellerOf(i.user); // invoices issued before profiles existed fall back to the live profile
     res.json({
-      id: i.id, number: i.number, merchant: i.user.name || i.user.email.split('@')[0], customerName: i.customerName,
+      id: i.id, number: i.number, merchant: seller.name, seller, customerName: i.customerName, customerEmail: i.customerEmail,
       description: i.description, lineItems: i.lineItems.map((li) => ({ ...li, unitFormatted: formatUnits(li.unitAmount, i.decimals) })),
       amount: i.amount, amountFormatted: formatUnits(i.amount, i.decimals), asset: i.asset, assetContract: i.assetContract,
       decimals: i.decimals, network: i.network, receiver: i.receiver, dueDate: i.dueDate, createdAt: i.createdAt, status: i.status,

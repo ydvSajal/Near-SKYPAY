@@ -1,18 +1,30 @@
-// Notion dashboard for the SkyPay workspace: a quiet, text-only layout (no emoji, no colored boxes).
+// Notion dashboard for the SkyPay workspace: section headers + a 2x2 grid of colored stat cards (callouts).
 // Layout is built once; numbers and the activity list are then updated in place from the database
 // (Notion is a view, never the ledger). Block ids are kept in SystemConfig under `notion_dash:<userId>`.
 import crypto from 'node:crypto';
 
 const rt = (content, gray = false) => [{ type: 'text', text: { content }, ...(gray ? { annotations: { color: 'gray' } } : {}) }];
 const para = (content, gray = true) => ({ object: 'block', type: 'paragraph', paragraph: { rich_text: rt(content, gray) } });
-const h2 = (content) => ({ object: 'block', type: 'heading_2', heading_2: { rich_text: rt(content) } });
-const h3 = (content) => ({ object: 'block', type: 'heading_3', heading_3: { rich_text: rt(content) } });
+const callout = (rich_text, emoji, color) => ({ object: 'block', type: 'callout', callout: { rich_text, icon: { type: 'emoji', emoji }, color } });
+const section = (title, emoji) => callout(rt(title), emoji, 'gray_background');
+// card text: label, value (bold), sub-line (gray)
+const kpiText = (label, value, sub) => [
+  { type: 'text', text: { content: `${label}\n` } },
+  { type: 'text', text: { content: value }, annotations: { bold: true } },
+  { type: 'text', text: { content: `\n${sub}` }, annotations: { color: 'gray' } },
+];
 const bullet = (content) => ({ object: 'block', type: 'bulleted_list_item', bulleted_list_item: { rich_text: rt(content) } });
 const divider = () => ({ object: 'block', type: 'divider', divider: {} });
 const cap = (s) => String(s || '').charAt(0).toUpperCase() + String(s || '').slice(1);
 const cfgKey = (userId) => `notion_dash:${userId}`;
 
-const KPI_LABELS = ['Collected', 'Outstanding', 'Paid to suppliers', 'Invoices issued'];
+const KPIS = [
+  { label: 'Collected', emoji: '📥', color: 'green_background' },
+  { label: 'Outstanding', emoji: '🧾', color: 'yellow_background' },
+  { label: 'Paid to suppliers', emoji: '📤', color: 'red_background' },
+  { label: 'Invoices issued', emoji: '🔄', color: 'blue_background' },
+];
+const GRID = [[0, 2], [1, 3]]; // KPI indexes per column: 2x2 cards, row 1 = Collected | Outstanding
 
 function intro({ network, isTest, updatedAt }) {
   const unit = `USDC on NEAR ${network}${isTest ? ' (test token, no value)' : ''}`;
@@ -25,39 +37,48 @@ export async function buildTop(notion, prisma, userId, pageId, { network, isTest
     block_id: pageId,
     children: [
       para(intro({ network, isTest, updatedAt: 'just now' })),
-      divider(),
+      section('Payment statistics', '📈'),
       {
         object: 'block', type: 'column_list',
         column_list: {
-          children: KPI_LABELS.map((label) => ({
+          children: GRID.map((idx) => ({
             object: 'block', type: 'column',
-            column: { children: [para(label), h2('0.00'), para('No data yet')] },
+            column: { children: idx.map((i) => callout(kpiText(KPIS[i].label, '0.00', 'No data yet'), KPIS[i].emoji, KPIS[i].color)) },
           })),
         },
       },
       divider(),
-      h3('Records'),
+      section('Records', '🗂️'),
     ],
   });
   const introId = first.results.find((b) => b.type === 'paragraph').id;
   const columnList = first.results.find((b) => b.type === 'column_list');
   const columns = (await notion.blocks.children.list({ block_id: columnList.id })).results;
   const kpis = [];
-  for (const col of columns) {
+  for (const [c, col] of columns.entries()) {
     const kids = (await notion.blocks.children.list({ block_id: col.id })).results;
-    kpis.push({ value: kids[1].id, sub: kids[2].id });
+    GRID[c].forEach((i, k) => { kpis[i] = kids[k].id; });
   }
-  const ids = { pageId, intro: introId, kpis, recent: [], hash: '', network, isTest };
+  // blocks = every top-level block SkyPay put on the page, so a rebuild removes exactly those
+  const ids = { pageId, intro: introId, kpis, recent: [], blocks: first.results.map((b) => b.id), hash: '', network, isTest };
   await save(prisma, userId, ids);
   return ids;
 }
 
 /** "Recent activity" heading and a first bullet, appended after the sub-pages. */
-export async function buildRecent(notion, prisma, userId) {
+export async function buildRecent(notion, prisma, userId, databaseIds = []) {
   const ids = await load(prisma, userId);
-  const r = await notion.blocks.children.append({ block_id: ids.pageId, children: [h3('Recent activity'), bullet('No activity yet.')] });
+  const r = await notion.blocks.children.append({ block_id: ids.pageId, children: [divider(), section('Recent activity', '📅'), bullet('No activity yet.')] });
   ids.recent = r.results.filter((b) => b.type === 'bulleted_list_item').map((b) => b.id);
+  // a database's child_database block id is the database id: deleting it trashes the database
+  ids.blocks = [...(ids.blocks || []), ...databaseIds, ...r.results.filter((b) => b.type !== 'bulleted_list_item').map((b) => b.id)];
   await save(prisma, userId, ids);
+}
+
+/** Remove everything SkyPay added to the page (to Notion trash, recoverable). The user's own blocks stay. */
+export async function clearDashboard(notion, prisma, userId) {
+  const ids = await load(prisma, userId);
+  for (const id of [...(ids?.blocks || []), ...(ids?.recent || [])]) await notion.blocks.delete({ block_id: id }).catch(() => {});
 }
 
 async function load(prisma, userId) {
@@ -111,9 +132,8 @@ export async function refreshDashboard(notion, prisma, userId) {
   const hash = crypto.createHash('sha1').update(JSON.stringify(stats)).digest('hex');
   if (hash === ids.hash) return false;
 
-  for (let i = 0; i < KPI_LABELS.length && ids.kpis[i]; i++) {
-    await notion.blocks.update({ block_id: ids.kpis[i].value, heading_2: { rich_text: rt(stats.kpis[i].value) } });
-    await notion.blocks.update({ block_id: ids.kpis[i].sub, paragraph: { rich_text: rt(stats.kpis[i].sub, true) } });
+  for (let i = 0; i < KPIS.length && ids.kpis[i]; i++) {
+    await notion.blocks.update({ block_id: ids.kpis[i], callout: { rich_text: kpiText(KPIS[i].label, stats.kpis[i].value, stats.kpis[i].sub) } });
   }
   await notion.blocks.update({
     block_id: ids.intro,

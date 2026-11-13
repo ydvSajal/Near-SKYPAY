@@ -15,6 +15,12 @@ model User {
   email            String             @unique
   password         String
   name             String?
+  // --- business profile: printed on invoices (snapshotted per invoice) ---
+  companyName      String?
+  companyAddress   String?
+  country          String?
+  taxId            String?
+  invoiceNotes     String?            // payment terms / footer shown on every invoice
   notionApiKey     String?
   notionWorkspaceId String?
   // --- NEAR (hackathon) ---
@@ -52,6 +58,7 @@ model Invoice {
   assetContract  String                       // pinned NEP-141 contract id
   decimals       Int       @default(6)
   network        String    @default("near:testnet")
+  seller         Json?                        // {name,address,country,taxId,email,notes} as issued; later profile edits do not rewrite old invoices
   receiver       String                       // company NEAR account that must receive funds (snapshotted)
   dueDate        DateTime
   status         String    @default("pending") // pending | paid | refunded | cancelled

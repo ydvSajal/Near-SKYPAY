@@ -49,7 +49,7 @@ export class SkyPay {
             userId, number, customerEmail: email, customerName: input.customerName?.slice(0, 120) || null,
             description: input.description?.slice(0, 500) || null, lineItems: items, amount,
             asset: 'USDC', assetContract: this.near.token, decimals: 6, network: `near:${this.near.network}`,
-            receiver: u.nearAccountId, dueDate: due,
+            receiver: u.nearAccountId, dueDate: due, seller: sellerOf(u),
           },
         });
         await this.outbox.enqueue(userId, 'invoice_email', `invoice_email:${inv.id}`, { invoiceId: inv.id });
@@ -178,6 +178,14 @@ export class SkyPay {
     const status = !onChain ? (a.status === 'unknown' ? 'failed' : a.status) : { Reserved: 'processing', Settled: 'settled', Failed: 'failed' }[onChain.status];
     return this.prisma.paymentAttempt.update({ where: { id: a.id }, data: { status } });
   }
+}
+
+/** Seller block printed on an invoice, frozen at issue time. */
+export function sellerOf(u) {
+  return {
+    name: u.companyName || u.name || u.email.split('@')[0], address: u.companyAddress || null, country: u.country || null,
+    taxId: u.taxId || null, email: u.email, notes: u.invoiceNotes || null,
+  };
 }
 
 /** Map a NEAR final execution status to our attempt status. */

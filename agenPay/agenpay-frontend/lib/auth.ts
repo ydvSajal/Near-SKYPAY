@@ -4,6 +4,11 @@ export interface User {
   name: string
   hasNotionIntegration?: boolean
   hasNearAccount?: boolean
+  companyName?: string | null
+  companyAddress?: string | null
+  country?: string | null
+  taxId?: string | null
+  invoiceNotes?: string | null
 }
 
 export interface AuthResponse {

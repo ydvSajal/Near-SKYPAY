@@ -7,8 +7,9 @@ import { authService } from "@/lib/auth"
 import { ensureOwnerKey, getStoredOwnerKey, importOwnerKey, ownerAction, toBaseUnits, fromBaseUnits, downloadOwnerKeyBackup } from "@/lib/near"
 import { AppHeader } from "@/components/app/app-header"
 import { StatusPill } from "@/components/app/status"
+import { BusinessForm } from "@/components/app/business-form"
 import {
-  AlertCircle, CheckCircle2, Download, ExternalLink, FileText, KeyRound, Loader2, Plus, Send, ShieldCheck, Trash2, Users, Vault, X,
+  AlertCircle, ArrowRight, Building2, CheckCircle2, Download, ExternalLink, FileText, KeyRound, Loader2, Plus, Send, ShieldCheck, Trash2, Users, Vault, X,
 } from "lucide-react"
 
 // ---------------------------------------------------------------- types
@@ -28,23 +29,23 @@ interface Invoice {
 
 // ---------------------------------------------------------------- ui bits
 const isAmount = (v: string) => /^\d+(\.\d{1,6})?$/.test(v.trim()) && Number(v) > 0
-const input = "h-10 w-full rounded-lg border border-input bg-card px-3 text-base outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/25 md:text-sm"
-const btnPrimary = "press inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-const btnSecondary = "press inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-border bg-card px-4 text-sm font-medium hover:bg-muted disabled:opacity-50"
+const input = "h-11 w-full rounded-lg border border-input bg-card px-3 text-base font-medium outline-none placeholder:font-normal placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/25"
+const btnPrimary = "press inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-primary px-5 text-[15px] font-bold text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+const btnSecondary = "press inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-border bg-card px-4 text-[15px] font-semibold hover:bg-muted disabled:opacity-50"
 
 function F({ id, label, hint, children, className = "" }: { id: string; label: string; hint?: string; children: React.ReactNode; className?: string }) {
   return (
-    <div className={`grid gap-1.5 ${className}`}>
-      <label htmlFor={id} className="text-sm font-medium">{label}</label>
+    <div className={`grid gap-1 ${className}`}>
+      <label htmlFor={id} className="text-[15px] font-semibold">{label}</label>
       {children}
-      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+      {hint && <p className="text-sm text-muted-foreground">{hint}</p>}
     </div>
   )
 }
 
 function Tx({ url }: { url: string | null }) {
   return url ? (
-    <a href={url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 text-xs text-primary hover:underline">
+    <a href={url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 text-sm font-semibold text-primary hover:underline">
       Transaction <ExternalLink className="h-3 w-3" />
     </a>
   ) : null
@@ -53,17 +54,32 @@ function Tx({ url }: { url: string | null }) {
 function Section({ id, icon: I, title, sub, children }: { id?: string; icon: typeof Vault; title: string; sub?: string; children: React.ReactNode }) {
   return (
     <section id={id} className="scroll-mt-24 rounded-xl border border-border bg-card">
-      <div className="flex gap-3 border-b border-border px-5 py-4">
-        <I className="mt-0.5 h-[18px] w-[18px] shrink-0 text-primary" strokeWidth={1.75} />
+      <div className="flex gap-3 border-b border-border px-5 py-3">
+        <I className="mt-1 h-5 w-5 shrink-0 text-primary" strokeWidth={2} />
         <div>
-          <h2 className="font-semibold">{title}</h2>
-          {sub && <p className="mt-0.5 text-sm text-muted-foreground">{sub}</p>}
+          <h2 className="text-lg font-bold">{title}</h2>
+          {sub && <p className="text-[15px] text-muted-foreground">{sub}</p>}
         </div>
       </div>
-      <div className="grid gap-5 p-5">{children}</div>
+      <div className="grid gap-4 p-5">{children}</div>
     </section>
   )
 }
+
+// Ordered the way money moves: get paid, set the agent's budget, choose who can be paid, pay them.
+const TABS = [
+  { id: "invoices", label: "Invoices", does: "Bill clients, see who paid", icon: FileText },
+  { id: "vault", label: "Vault", does: "Agent budget and limits", icon: Vault },
+  { id: "payees", label: "Payees", does: "Suppliers you approved", icon: Users },
+  { id: "pay", label: "Pay supplier", does: "Send money from the vault", icon: Send },
+  { id: "company", label: "Company", does: "Details on your invoices", icon: Building2 },
+]
+
+const FLOW = [
+  ["1. Get paid", "Clients pay your invoices. The money lands in your receiving account, which only you control."],
+  ["2. Set a budget", "You move part of it into the vault and set the agent's limits. Nothing else is at risk."],
+  ["3. Pay suppliers", "The agent pays approved payees from the vault. The contract refuses anything outside your limits."],
+]
 
 // ------------------------------------------------------------------ page
 export default function FinancePage() {
@@ -113,10 +129,14 @@ export default function FinancePage() {
     return () => clearInterval(t)
   }, [load])
 
-  // Arriving from a dashboard shortcut: scroll once content exists.
+  // One section at a time, picked from the sidebar. The URL hash keeps dashboard shortcuts (/finance#pay) and reloads working.
+  const [tab, setTab] = useState("invoices")
   useEffect(() => {
-    if (st?.company && window.location.hash) document.querySelector(window.location.hash)?.scrollIntoView()
-  }, [st?.company])
+    const sync = () => { const h = window.location.hash.slice(1); if (TABS.some((t) => t.id === h)) setTab(h) }
+    sync()
+    window.addEventListener("hashchange", sync)
+    return () => window.removeEventListener("hashchange", sync)
+  }, [])
 
   const run = async (label: string, fn: () => Promise<{ url?: string; text?: string } | void>) => {
     setBusy(label)
@@ -204,15 +224,15 @@ export default function FinancePage() {
         </span>
       </AppHeader>
 
-      <main className="mx-auto grid max-w-[1200px] gap-6 px-4 py-6 md:px-6 md:py-8">
+      <main className="mx-auto grid max-w-[1400px] gap-4 px-4 py-4 md:px-6">
         <div>
-          <h1 className="text-2xl font-semibold tracking-[-0.02em]">Finance</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Accounts, vault rules, payees, supplier payments and invoices.</p>
+          <h1 className="text-3xl font-bold tracking-[-0.02em]">Finance</h1>
+          <p className="text-base text-muted-foreground">Bill clients, hold a spending budget for the agent, and pay approved suppliers. All amounts are {st.tokenLabel} on NEAR {st.network}.</p>
         </div>
 
         <div aria-live="polite">
           {msg && (
-            <div role={msg.ok ? "status" : "alert"} className={`flex items-start gap-3 rounded-lg border px-4 py-3 text-sm ${msg.ok ? "border-success/30 bg-success/5 text-success" : "border-destructive/30 bg-destructive/5 text-destructive"}`}>
+            <div role={msg.ok ? "status" : "alert"} className={`flex items-start gap-3 rounded-lg border px-4 py-2.5 text-sm ${msg.ok ? "border-success/30 bg-success/5 text-success" : "border-destructive/30 bg-destructive/5 text-destructive"}`}>
               {msg.ok ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> : <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />}
               <p className="min-w-0 flex-1 break-words">
                 {msg.text} {msg.url && <a className="ml-1 font-medium underline" href={msg.url} target="_blank" rel="noreferrer">View transaction</a>}
@@ -223,7 +243,7 @@ export default function FinancePage() {
         </div>
 
         {!st.configured && (
-          <div role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+          <div role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-2.5 text-sm text-destructive">
             NEAR is not configured on this server. Run <code className="font-mono">npm run near:bootstrap</code> in agenpay-backend.
           </div>
         )}
@@ -262,18 +282,31 @@ export default function FinancePage() {
           </Section>
         ) : (
           <>
+            {/* How money moves through the three accounts */}
+            <ol className="grid gap-px overflow-hidden rounded-xl border border-border bg-border md:grid-cols-3">
+              {FLOW.map(([t, d], i) => (
+                <li key={t} className="flex gap-3 bg-card px-5 py-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold">{t}</p>
+                    <p className="text-sm leading-relaxed text-muted-foreground">{d}</p>
+                  </div>
+                  {i < 2 && <ArrowRight aria-hidden className="mt-1 hidden h-4 w-4 shrink-0 text-muted-foreground md:block" />}
+                </li>
+              ))}
+            </ol>
+
             {/* Accounts + balances */}
             <dl className="grid grid-cols-2 overflow-hidden rounded-xl border border-border bg-card lg:grid-cols-4">
               {[
-                { l: "Receiving account", v: `${u(st.companyBalance)} ${tokenShort}`, s: st.company, link: st.links?.company },
-                { l: "Vault available", v: `${u(st.vaultAvailable)} ${tokenShort}`, s: `${u(st.vaultReserved)} reserved`, link: st.links?.vault },
+                { l: "Receiving account (client payments)", v: `${u(st.companyBalance)} ${tokenShort}`, s: st.company, link: st.links?.company },
+                { l: "Vault (agent can spend)", v: `${u(st.vaultAvailable)} ${tokenShort}`, s: `${u(st.vaultReserved)} reserved`, link: st.links?.vault },
                 { l: "Agent spent today", v: p ? `${u(p.spent_today)} / ${u(p.daily_limit)}` : "No policy", s: p ? (p.revoked ? "Revoked" : `Max ${u(p.per_tx_limit)} per payment`) : "Set limits below", link: st.links?.agent },
                 { l: "Invoices paid", v: `${invoices.filter((i) => i.status === "paid").length} of ${invoices.length}`, s: "Verified on chain" },
               ].map((k, i) => (
-                <div key={k.l} className={`min-w-0 p-5 ${i % 2 === 1 ? "border-l border-border" : ""} ${i >= 2 ? "border-t border-border lg:border-t-0" : ""} ${i === 2 ? "lg:border-l" : ""}`}>
-                  <dt className="text-sm text-muted-foreground">{k.l}</dt>
-                  <dd className="tabular mt-1.5 text-xl font-semibold tracking-[-0.01em]">{k.v}</dd>
-                  <dd className="mt-1 truncate text-xs text-muted-foreground">
+                <div key={k.l} className={`min-w-0 px-5 py-3 ${i % 2 === 1 ? "border-l border-border" : ""} ${i >= 2 ? "border-t border-border lg:border-t-0" : ""} ${i === 2 ? "lg:border-l" : ""}`}>
+                  <dt className="text-[15px] font-medium text-muted-foreground">{k.l}</dt>
+                  <dd className="tabular text-2xl font-bold tracking-[-0.01em]">{k.v}</dd>
+                  <dd className="truncate text-sm text-muted-foreground">
                     {k.link ? <a href={k.link} target="_blank" rel="noreferrer" className="hover:underline">{k.s}</a> : k.s}
                   </dd>
                 </div>
@@ -305,9 +338,30 @@ export default function FinancePage() {
               </div>
             )}
 
-            <div className="grid items-start gap-6 lg:grid-cols-2">
+            <div className="grid items-start gap-4 lg:grid-cols-[230px_minmax(0,1fr)] lg:gap-6">
+              {/* Section sidebar: a column on desktop, a scrollable row on small screens */}
+              <nav aria-label="Finance sections" className="flex gap-1 overflow-x-auto lg:sticky lg:top-20 lg:flex-col">
+                {TABS.map(({ id, label, does, icon: I }) => {
+                  const count = { vault: 0, company: 0, payees: payees.length, pay: payments.length, invoices: invoices.length }[id]
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      aria-current={tab === id ? "page" : undefined}
+                      onClick={() => { history.replaceState(null, "", `#${id}`); setTab(id) }}
+                      className={`press flex shrink-0 items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-base transition-colors ${tab === id ? "bg-card font-bold text-foreground shadow-[inset_0_0_0_1px_var(--border)]" : "font-semibold text-muted-foreground hover:bg-muted hover:text-foreground"}`}
+                    >
+                      <I className={`h-5 w-5 shrink-0 ${tab === id ? "text-primary" : ""}`} strokeWidth={2} />
+                      <span className="flex-1 whitespace-nowrap">{label}<span className="hidden text-sm font-normal text-muted-foreground lg:block">{does}</span></span>
+                      {!!count && <span className="tabular text-xs text-muted-foreground">{count}</span>}
+                    </button>
+                  )
+                })}
+              </nav>
+
+              <div className="min-w-0">
               {/* Vault controls */}
-              <Section id="vault" icon={Vault} title="Operating vault" sub="Money the agent may spend. The contract enforces these rules, not SKYPay's server.">
+              {tab === "vault" && <Section id="vault" icon={Vault} title="Operating vault" sub="A smart contract that holds the agent's spending budget. Move money in, set limits, take it back any time. The contract enforces the limits, not SKYPay's server.">
                 <div className="flex flex-wrap gap-2">
                   {st.isTestToken && (
                     <button type="button" className={btnSecondary} disabled={!!busy} onClick={() => run("Test tokens", async () => {
@@ -321,8 +375,8 @@ export default function FinancePage() {
                 </div>
 
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="flex items-end gap-2">
-                    <F id="fund" label={`Fund vault (${tokenShort})`} className="flex-1">
+                  <div className="flex items-start gap-2 [&>button]:mt-[30px]">
+                    <F id="fund" label={`Fund vault (${tokenShort})`} hint="Moves money from your receiving account into the vault." className="flex-1">
                       <input id="fund" inputMode="decimal" value={fund} onChange={(e) => setFund(e.target.value)} className={`${input} tabular`} />
                     </F>
                     <button type="button" disabled={!!busy || !hasKey || !isAmount(fund)} className={btnPrimary} onClick={() => run("Fund vault", () =>
@@ -330,8 +384,8 @@ export default function FinancePage() {
                       Fund
                     </button>
                   </div>
-                  <div className="flex items-end gap-2">
-                    <F id="withdraw" label={`Withdraw (${tokenShort})`} className="flex-1">
+                  <div className="flex items-start gap-2 [&>button]:mt-[30px]">
+                    <F id="withdraw" label={`Withdraw (${tokenShort})`} hint="Returns unspent vault money to your receiving account." className="flex-1">
                       <input id="withdraw" inputMode="decimal" value={withdraw} onChange={(e) => setWithdraw(e.target.value)} className={`${input} tabular`} />
                     </F>
                     <button type="button" disabled={!!busy || !hasKey || !isAmount(withdraw)} className={btnSecondary} onClick={() => run("Withdraw", () =>
@@ -343,6 +397,9 @@ export default function FinancePage() {
 
                 <div className="rounded-lg bg-muted p-4">
                   <p className="font-medium">Agent spending policy</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Per payment is the largest single payment. Per day is the total the agent may send in one day (UTC). After the valid days pass, the agent can no longer pay until you renew.
+                  </p>
                   <div className="mt-3 grid grid-cols-3 gap-3">
                     <F id="pertx" label="Per payment"><input id="pertx" inputMode="decimal" value={perTx} onChange={(e) => setPerTx(e.target.value)} className={`${input} tabular`} /></F>
                     <F id="daily" label="Per day"><input id="daily" inputMode="decimal" value={daily} onChange={(e) => setDaily(e.target.value)} className={`${input} tabular`} /></F>
@@ -369,14 +426,14 @@ export default function FinancePage() {
                     </p>
                   )}
                 </div>
-              </Section>
+              </Section>}
 
               {/* Payees */}
-              <Section id="payees" icon={Users} title="Approved payees" sub="Only you can add payout destinations. The agent cannot take addresses from chat, email or invoices.">
+              {tab === "payees" && <Section id="payees" icon={Users} title="Approved payees" sub="The only accounts the vault will pay. You add them here; the agent cannot add one or take an address from chat, email or an invoice.">
                 {payees.length ? (
                   <ul className="divide-y divide-border rounded-lg border border-border">
                     {payees.map((x) => (
-                      <li key={x.id} className="flex items-center justify-between gap-3 px-4 py-3">
+                      <li key={x.id} className="flex items-center justify-between gap-3 px-4 py-2.5">
                         <div className="min-w-0">
                           <p className="font-medium">{x.name}</p>
                           <p className="truncate font-mono text-xs text-muted-foreground">{x.nearAccount}</p>
@@ -403,11 +460,10 @@ export default function FinancePage() {
                     return tx
                   })}><Plus className="h-4 w-4" /> Add</button>
                 </div>
-              </Section>
-            </div>
+              </Section>}
 
             {/* Supplier payments */}
-            <Section id="pay" icon={Send} title="Pay a supplier from the vault" sub="Executed by the agent account. The vault refuses anything over the limits, to unapproved payees, or after revocation.">
+            {tab === "pay" && <Section id="pay" icon={Send} title="Pay a supplier from the vault" sub="Sends money from the vault to an approved payee, using the agent's key. The same rules apply as when you ask the agent in chat: over-limit, unapproved or revoked payments are refused on chain.">
               <div className="grid gap-3 sm:grid-cols-[1.2fr_0.6fr_1fr_auto] sm:items-end">
                 <F id="pay-to" label="Payee">
                   <select id="pay-to" className={input} value={payTo} onChange={(e) => setPayTo(e.target.value)}>
@@ -428,22 +484,22 @@ export default function FinancePage() {
               </div>
               {payments.length > 0 && (
                 <div className="overflow-x-auto rounded-lg border border-border">
-                  <table className="w-full min-w-[560px] text-sm">
+                  <table className="w-full min-w-[560px] text-base font-medium">
                     <thead>
-                      <tr className="bg-muted text-left text-xs text-muted-foreground">
-                        <th className="px-4 py-2.5 font-medium">Recipient</th>
+                      <tr className="bg-muted text-left text-sm text-muted-foreground">
+                        <th className="px-4 py-2 font-semibold">Recipient</th>
                         <th className="px-4 py-2.5 text-right font-medium">Amount</th>
-                        <th className="px-4 py-2.5 font-medium">Status</th>
-                        <th className="px-4 py-2.5 font-medium"><span className="sr-only">Details</span></th>
+                        <th className="px-4 py-2 font-semibold">Status</th>
+                        <th className="px-4 py-2 font-semibold"><span className="sr-only">Details</span></th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border">
                       {payments.map((x) => (
                         <tr key={x.id}>
-                          <td className="max-w-[220px] truncate px-4 py-3 font-mono text-xs">{x.recipient}</td>
-                          <td className="tabular px-4 py-3 text-right">{Number(x.amountFormatted).toFixed(2)}</td>
-                          <td className="px-4 py-3"><StatusPill status={x.status} /></td>
-                          <td className="px-4 py-3 text-right">
+                          <td className="max-w-[220px] truncate px-4 py-2.5 font-mono text-xs">{x.recipient}</td>
+                          <td className="tabular px-4 py-2.5 text-right">{Number(x.amountFormatted).toFixed(2)}</td>
+                          <td className="px-4 py-2.5"><StatusPill status={x.status} /></td>
+                          <td className="px-4 py-2.5 text-right">
                             {x.error ? <span className="text-xs text-destructive">{x.error.replace("Contract panicked: ", "Refused by vault: ")}</span> : <Tx url={x.url} />}
                           </td>
                         </tr>
@@ -452,11 +508,11 @@ export default function FinancePage() {
                   </table>
                 </div>
               )}
-            </Section>
+            </Section>}
 
             {/* Invoices */}
-            <Section id="invoices" icon={FileText} title="Invoices" sub="Clients pay in USDC on NEAR. An invoice is marked paid only after SKYPay verifies the transfer on chain.">
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {tab === "invoices" && <Section id="invoices" icon={FileText} title="Invoices" sub="Create an invoice and SKYPay emails the client a pay link. It turns paid only after the transfer is verified on NEAR, and the money goes to your receiving account.">
+              <div className="grid gap-x-3 gap-y-2 sm:grid-cols-2 lg:grid-cols-4">
                 <F id="inv-email" label="Client email"><input id="inv-email" type="email" value={inv.email} onChange={(e) => setInv({ ...inv, email: e.target.value })} className={input} /></F>
                 <F id="inv-name" label="Client name"><input id="inv-name" value={inv.name} onChange={(e) => setInv({ ...inv, name: e.target.value })} className={input} /></F>
                 <F id="inv-desc" label="Description"><input id="inv-desc" value={inv.description} onChange={(e) => setInv({ ...inv, description: e.target.value })} className={input} /></F>
@@ -502,26 +558,26 @@ export default function FinancePage() {
 
               {invoices.length > 0 ? (
                 <div className="overflow-x-auto rounded-lg border border-border">
-                  <table className="w-full min-w-[620px] text-sm">
+                  <table className="w-full min-w-[620px] text-base font-medium">
                     <thead>
-                      <tr className="bg-muted text-left text-xs text-muted-foreground">
-                        <th className="px-4 py-2.5 font-medium">Invoice</th>
-                        <th className="px-4 py-2.5 font-medium">Client</th>
+                      <tr className="bg-muted text-left text-sm text-muted-foreground">
+                        <th className="px-4 py-2 font-semibold">Invoice</th>
+                        <th className="px-4 py-2 font-semibold">Client</th>
                         <th className="px-4 py-2.5 text-right font-medium">Amount</th>
-                        <th className="px-4 py-2.5 font-medium">Status</th>
-                        <th className="px-4 py-2.5 font-medium">Due</th>
+                        <th className="px-4 py-2 font-semibold">Status</th>
+                        <th className="px-4 py-2 font-semibold">Due</th>
                         <th className="px-4 py-2.5"><span className="sr-only">Transaction</span></th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border">
                       {invoices.map((x) => (
                         <tr key={x.id}>
-                          <td className="px-4 py-3"><Link href={`/invoice/${x.id}`} target="_blank" className="font-medium hover:underline">{x.number}</Link></td>
-                          <td className="max-w-[200px] truncate px-4 py-3 text-muted-foreground">{x.customerName || x.customerEmail}</td>
-                          <td className="tabular px-4 py-3 text-right">{Number(x.amountFormatted).toFixed(2)}</td>
-                          <td className="px-4 py-3"><StatusPill status={x.status} /></td>
-                          <td className="px-4 py-3 text-muted-foreground">{new Date(x.dueDate).toLocaleDateString()}</td>
-                          <td className="px-4 py-3 text-right"><Tx url={x.txUrl} /></td>
+                          <td className="px-4 py-2.5"><Link href={`/invoice/${x.id}`} target="_blank" className="font-medium hover:underline">{x.number}</Link></td>
+                          <td className="max-w-[200px] truncate px-4 py-2.5 text-muted-foreground">{x.customerName || x.customerEmail}</td>
+                          <td className="tabular px-4 py-2.5 text-right">{Number(x.amountFormatted).toFixed(2)}</td>
+                          <td className="px-4 py-2.5"><StatusPill status={x.status} /></td>
+                          <td className="px-4 py-2.5 text-muted-foreground">{new Date(x.dueDate).toLocaleDateString()}</td>
+                          <td className="px-4 py-2.5 text-right"><Tx url={x.txUrl} /></td>
                         </tr>
                       ))}
                     </tbody>
@@ -530,7 +586,20 @@ export default function FinancePage() {
               ) : (
                 <p className="rounded-lg bg-muted p-4 text-sm text-muted-foreground">No invoices yet. Fill in the form above to send your first one.</p>
               )}
-            </Section>
+            </Section>}
+
+            {tab === "company" && <Section id="company" icon={Building2} title="Company details" sub="Printed as the seller on new invoices and invoice emails. Invoices already sent keep the details they were issued with.">
+              <BusinessForm />
+              <dl className="grid gap-x-6 gap-y-2 border-t border-border pt-4 text-sm sm:grid-cols-[auto_1fr]">
+                <dt className="text-muted-foreground">Sign-in email</dt><dd>{user.email}</dd>
+                <dt className="text-muted-foreground">Receiving account</dt><dd className="break-all font-mono text-xs">{st.company}</dd>
+                <dt className="text-muted-foreground">Vault contract</dt><dd className="break-all font-mono text-xs">{st.vault}</dd>
+                <dt className="text-muted-foreground">Agent account</dt><dd className="break-all font-mono text-xs">{st.agent}</dd>
+                <dt className="text-muted-foreground">Owner key</dt><dd>{hasKey ? "In this browser. Keep the backup file safe." : "Not in this browser. Import your backup above."}</dd>
+              </dl>
+            </Section>}
+              </div>
+            </div>
           </>
         )}
       </main>

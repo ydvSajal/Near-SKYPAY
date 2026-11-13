@@ -1,5 +1,5 @@
 // Queue a forced Notion workspace rebuild (new layout) for one account: node scripts/notion-rebuild.mjs <email>
-// The running backend picks the job up; the previous SkyPay page is moved to Notion trash (recoverable).
+// The running backend picks the job up; blocks SkyPay added before go to Notion trash (recoverable), the user's own blocks stay.
 import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
 

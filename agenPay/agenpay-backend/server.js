@@ -87,8 +87,10 @@ app.use('/x402pay/', paymentPageLimiter);
 // 🛡️ Admin portal API (own auth; type:'admin' JWT, separate from user tokens)
 app.use('/api/admin', adminRouter);
 
+const PROFILE_FIELDS = { name: 120, companyName: 120, companyAddress: 300, country: 60, taxId: 40, invoiceNotes: 500 };
 const publicUser = (u) => ({
   id: u.id, email: u.email, name: u.name, hasNotionIntegration: !!u.notionApiKey, hasNearAccount: !!u.nearAccountId,
+  companyName: u.companyName, companyAddress: u.companyAddress, country: u.country, taxId: u.taxId, invoiceNotes: u.invoiceNotes,
 });
 
 // 🛡️ Authentication middleware
@@ -104,7 +106,7 @@ const authenticateToken = async (req, res, next) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const user = await prisma.user.findUnique({
       where: { id: decoded.userId },
-      select: { id: true, email: true, name: true, notionApiKey: true, nearAccountId: true },
+      select: { id: true, email: true, name: true, notionApiKey: true, nearAccountId: true, companyName: true, companyAddress: true, country: true, taxId: true, invoiceNotes: true },
     });
 
     if (!user) {
@@ -183,6 +185,24 @@ app.get('/api/workspace-status/:userId', authenticateToken, async (req, res) => 
 // �📝 User Registration
 // Session restore for the web app
 app.get('/api/me', authenticateToken, (req, res) => res.json({ success: true, data: { user: publicUser(req.user) } }));
+
+// Business profile: what the company prints on its invoices. Only the listed fields, trimmed and length-capped.
+app.patch('/api/profile', authenticateToken, async (req, res) => {
+  try {
+    const data = {};
+    for (const [k, max] of Object.entries(PROFILE_FIELDS)) {
+      if (req.body?.[k] === undefined) continue;
+      if (typeof req.body[k] !== 'string') return res.status(400).json({ error: `${k} must be text` });
+      data[k] = req.body[k].trim().slice(0, max) || null;
+    }
+    if (data.name === null) return res.status(400).json({ error: 'name cannot be empty' });
+    const user = await prisma.user.update({ where: { id: req.user.id }, data });
+    res.json({ success: true, data: { user: publicUser(user) } });
+  } catch (error) {
+    console.error('❌ Profile update error:', error);
+    res.status(500).json({ error: 'Profile update failed' });
+  }
+});
 
 app.post('/api/auth/register', async (req, res) => {
   try {

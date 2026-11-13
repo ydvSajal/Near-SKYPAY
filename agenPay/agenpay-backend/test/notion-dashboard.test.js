@@ -1,7 +1,15 @@
 // Run: npm test  (no network, no database)
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { dashboardStats } from '../lib/notionDashboard.js';
+import { dashboardStats, clearDashboard } from '../lib/notionDashboard.js';
+
+test('rebuild removes only blocks SkyPay added, never the user\'s own', async () => {
+  const deleted = [];
+  const notion = { blocks: { delete: async ({ block_id }) => { deleted.push(block_id); } } };
+  const value = JSON.stringify({ pageId: 'user-page', blocks: ['a', 'db1'], recent: ['r1'] });
+  await clearDashboard(notion, { systemConfig: { findUnique: async () => ({ value }) } }, 'u1');
+  assert.deepEqual(deleted, ['a', 'db1', 'r1']);
+});
 
 const d = (s) => new Date(s);
 const prisma = {

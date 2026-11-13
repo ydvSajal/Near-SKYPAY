@@ -133,6 +133,7 @@ export class NotionService {
       return {
         success: true,
         message: 'Notion workspace setup completed successfully',
+        workspacePageId: workspaceSetup.workspacePageId,
         databases: workspaceSetup.databases,
         user: connectionTest.user
       };
@@ -155,12 +156,12 @@ export class NotionService {
       const network = (process.env.NEAR_NETWORK || 'testnet');
       await buildTop(this.notion, this.prisma, userId, workspacePage.id, { network, isTest });
 
-      // Databases sit directly on the page (inline), in order: no sub-pages to click through.
+      // Full-page databases as direct children: each entry under "Records" opens straight to its table (no page-inside-page).
       const incomingPaymentsDb = await this.createIncomingPaymentsDatabase(workspacePage.id);
       const outgoingPaymentsDb = await this.createOutgoingPaymentsDatabase(workspacePage.id);
       const transactionsDb = await this.createTransactionsDatabase(workspacePage.id);
 
-      await buildRecent(this.notion, this.prisma, userId);
+      await buildRecent(this.notion, this.prisma, userId, [incomingPaymentsDb.id, outgoingPaymentsDb.id, transactionsDb.id]);
 
       // Store databases in our system (serialize properties to string for SQLite compatibility)
       const databases = [
@@ -236,26 +237,10 @@ export class NotionService {
         if (!parentPage) {
           throw new Error('No accessible page found. In Notion, share at least one top-level page with the SkyPay integration.');
         }
-        console.log(`📍 Creating SkyPay workspace inside: "${titleOf(parentPage) || 'Untitled'}" (${parentPage.id})`);
-
-        workspacePage = await this.notion.pages.create({
-          parent: {
-            type: 'page_id',
-            page_id: parentPage.id,
-          },
-          properties: {
-            title: {
-              title: [
-                {
-                  type: 'text',
-                  text: {
-                    content: 'SkyPay',
-                  },
-                },
-              ],
-            },
-          },
-        });
+        // The dashboard goes straight onto the shared page (no "SkyPay" child page to click through).
+        // Rebuilds only remove blocks SkyPay added (tracked in notionDashboard), never the page itself.
+        console.log(`📍 Building SkyPay dashboard on: "${titleOf(parentPage) || 'Untitled'}" (${parentPage.id})`);
+        workspacePage = parentPage;
       } catch (error) {
         console.error('⚠️ Could not create in page, trying workspace root:', error.message);
         // Fallback: try workspace root (this might fail if integration doesn't have workspace permission)
@@ -275,11 +260,11 @@ export class NotionService {
    */
   async createIncomingPaymentsDatabase(parentPageId) {
     const database = await this.notion.databases.create({
-      is_inline: true,
       parent: {
         type: 'page_id',
         page_id: parentPageId,
       },
+      is_inline: false, // sub-page under "Records", not a table dumped on the dashboard
       title: [
         {
           type: 'text',
@@ -381,11 +366,11 @@ export class NotionService {
    */
   async createOutgoingPaymentsDatabase(parentPageId) {
     const database = await this.notion.databases.create({
-      is_inline: true,
       parent: {
         type: 'page_id',
         page_id: parentPageId,
       },
+      is_inline: false,
       title: [
         {
           type: 'text',
@@ -466,11 +451,11 @@ export class NotionService {
    */
   async createTransactionsDatabase(parentPageId) {
     const database = await this.notion.databases.create({
-      is_inline: true,
       parent: {
         type: 'page_id',
         page_id: parentPageId,
       },
+      is_inline: false,
       title: [
         {
           type: 'text',
