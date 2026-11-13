@@ -149,19 +149,16 @@ export class NotionService {
     try {
       console.log(`🗃️ Setting up SkyPay workspace for user ${userId}`);
       
-      // Page order is creation order: header + key figures, then the record pages, then recent activity.
+      // Page order is creation order: header + key figures, then the three databases, then recent activity.
       const workspacePage = await this.createWorkspacePage();
       const isTest = process.env.NEAR_USDC_IS_TEST_TOKEN === 'true';
       const network = (process.env.NEAR_NETWORK || 'testnet');
       await buildTop(this.notion, this.prisma, userId, workspacePage.id, { network, isTest });
 
-      const incomingPaymentsPage = await this.createSubPage(workspacePage.id, 'Invoices');
-      const outgoingPaymentsPage = await this.createSubPage(workspacePage.id, 'Supplier payments');
-      const transactionsPage = await this.createSubPage(workspacePage.id, 'Ledger');
-
-      const incomingPaymentsDb = await this.createIncomingPaymentsDatabase(incomingPaymentsPage.id);
-      const outgoingPaymentsDb = await this.createOutgoingPaymentsDatabase(outgoingPaymentsPage.id);
-      const transactionsDb = await this.createTransactionsDatabase(transactionsPage.id);
+      // Databases sit directly on the page (inline), in order: no sub-pages to click through.
+      const incomingPaymentsDb = await this.createIncomingPaymentsDatabase(workspacePage.id);
+      const outgoingPaymentsDb = await this.createOutgoingPaymentsDatabase(workspacePage.id);
+      const transactionsDb = await this.createTransactionsDatabase(workspacePage.id);
 
       await buildRecent(this.notion, this.prisma, userId);
 
@@ -274,38 +271,11 @@ export class NotionService {
   }
 
   /**
-   * Create sub-page
-   */
-  async createSubPage(parentId, title, emoji = null) {
-    try {
-      console.log(`📄 Creating sub-page: ${title} with emoji: ${emoji}`);
-      const page = await this.notion.pages.create({
-        parent: { type: 'page_id', page_id: parentId },
-        ...(emoji ? { icon: { type: 'emoji', emoji } } : {}),
-        properties: {
-          title: {
-            title: [
-              {
-                type: 'text',
-                text: { content: title },
-              },
-            ],
-          },
-        },
-      });
-      console.log(`✅ Sub-page created: ${title} with ID: ${page.id}`);
-      return page;
-    } catch (error) {
-      console.error(`❌ Error creating sub-page ${title}:`, error);
-      throw error;
-    }
-  }
-
-  /**
    * Create Incoming Payment Requests Database
    */
   async createIncomingPaymentsDatabase(parentPageId) {
     const database = await this.notion.databases.create({
+      is_inline: true,
       parent: {
         type: 'page_id',
         page_id: parentPageId,
@@ -411,6 +381,7 @@ export class NotionService {
    */
   async createOutgoingPaymentsDatabase(parentPageId) {
     const database = await this.notion.databases.create({
+      is_inline: true,
       parent: {
         type: 'page_id',
         page_id: parentPageId,
@@ -495,6 +466,7 @@ export class NotionService {
    */
   async createTransactionsDatabase(parentPageId) {
     const database = await this.notion.databases.create({
+      is_inline: true,
       parent: {
         type: 'page_id',
         page_id: parentPageId,
