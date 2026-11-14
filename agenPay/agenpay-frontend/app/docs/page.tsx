@@ -169,12 +169,12 @@ export default function DocsPage() {
               <H2 id="invoices">Invoices and settlement</H2>
               <InvoiceDiagram />
               <p className={P}>
-                An invoice has line items, a due date, a public checkout page and a status: pending, paid or refunded, with explorer links. It becomes <strong>paid</strong> only when SkyPay
+                An invoice has line items, a due date, a public checkout page and a status (pending or paid) with explorer links. Refunds are not built. It becomes <strong>paid</strong> only when SkyPay
                 finds a successful transfer that meets all of these:
               </p>
               <ul className={UL}>
                 <li>the pinned token contract, on the active network;</li>
-                <li>the full amount, to the company account;</li>
+                <li>the full amount, to the company account, and not refunded in the same transaction;</li>
                 <li>a memo that matches this invoice;</li>
                 <li>a transaction that has not already paid another invoice.</li>
               </ul>

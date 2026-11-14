@@ -30,7 +30,7 @@ export function Features() {
           <Cell className="bg-primary text-primary-foreground md:col-span-2">
             <Title Icon={FileText} light>Invoices with due dates</Title>
             <p className="mt-2 max-w-md leading-relaxed text-primary-foreground/80">
-              Line items, a due date and a public checkout page. Status reads paid, pending or refunded, each with a transaction link.
+              Line items, a due date and a public checkout page. Status reads pending or paid, with the transaction link once paid.
             </p>
             <div className="mt-auto pt-8">
               <div className="grid max-w-md grid-cols-[1fr_auto] gap-y-2 border-t border-primary-foreground/20 pt-4 text-sm">

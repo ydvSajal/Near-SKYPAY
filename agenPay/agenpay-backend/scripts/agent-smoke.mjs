@@ -1,6 +1,6 @@
 // One-command API smoke test for reviewers and coding agents.
 //   node scripts/agent-smoke.mjs [baseUrl]      (default http://localhost:3001)
-// Needs only a running backend + Postgres. No NEAR keys, no browser, no real money.
+// Needs only a running backend + Postgres. Works with or without NEAR sponsor keys (.env.near); no browser, no real money.
 // Exits 0 if every check passes, 1 otherwise. Owner-signed flows (fund vault, limits) need the browser key: see AGENTS.md.
 const B = process.argv[2] || 'http://localhost:3001';
 const email = `agent-${Date.now()}@example.com`;
@@ -36,7 +36,8 @@ for (const p of ['/api/me', '/api/invoices', '/api/payees', '/api/bills', '/api/
 }
 
 r = await call('GET', '/api/near/status', { token });
-check('near status: configured, testnet, no company yet', r.status === 200 && r.json.configured === true && r.json.network === 'testnet' && r.json.company === null, r);
+check('near status: testnet, no company yet', r.status === 200 && typeof r.json.configured === 'boolean' && r.json.network === 'testnet' && r.json.company === null, r);
+if (r.json?.configured === false) console.log('NOTE  NEAR sponsor not configured (no .env.near): fine for this smoke; company setup needs `npm run near:bootstrap`');
 r = await call('GET', '/api/invoices', { token });
 check('new user has zero invoices', r.status === 200 && Array.isArray(r.json.invoices) && r.json.invoices.length === 0, r);
 r = await call('POST', '/api/vault/payments', { token, body: { payeeId: 'nope', amount: '1', idempotencyKey: 'k' } });

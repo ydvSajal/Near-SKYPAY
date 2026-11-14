@@ -125,3 +125,33 @@ test('settlement is bound to one invoice: memo must match, other memos never add
   assert.match(NearService.evaluateReceipt(tx(t('6000000', 'INV-0001'), t('6000000', 'INV-0002')), opts).reason, /below/);
   assert.equal(NearService.evaluateReceipt(tx(t('10000000', 'INV-0001')), { ...opts, memos: undefined }).ok, false); // binding cannot be skipped
 });
+
+test('settlement counts only what the receiver kept: ft_transfer_call refunds and burns are subtracted', () => {
+  const opts = { token: 'usdc.testnet', receiver: 'acme.testnet', minAmount: '10000000', memos: ['INV-0001'] };
+  const pay = { old_owner_id: 'c.testnet', new_owner_id: 'acme.testnet', amount: '10000000', memo: 'INV-0001' };
+  const refund = (amount) => ({ old_owner_id: 'acme.testnet', new_owner_id: 'c.testnet', amount, memo: 'refund' });
+  const burnEv = (amount) => ({ outcome: { executor_id: 'usdc.testnet', status: { SuccessValue: '' },
+    logs: [`EVENT_JSON:${JSON.stringify({ standard: 'nep141', version: '1.0.0', event: 'ft_burn', data: [{ owner_id: 'acme.testnet', amount }] })}`] } });
+  // transfer-call chain: transfer receipt, receiver's (failed) ft_on_transfer, then ft_resolve_transfer refund
+  const chain = (...tail) => ({ status: { SuccessValue: '' }, receipts_outcome: [
+    ev('usdc.testnet', [pay]),
+    { outcome: { executor_id: 'acme.testnet', status: { Failure: {} }, logs: [] } },
+    ...tail,
+  ] });
+
+  const full = NearService.evaluateReceipt(chain(ev('usdc.testnet', [refund('10000000')])), opts);
+  assert.equal(full.ok, false); assert.match(full.reason, /refunded/);
+
+  const partial = NearService.evaluateReceipt(chain(ev('usdc.testnet', [refund('4000000')])), opts);
+  assert.equal(partial.ok, false); assert.match(partial.reason, /below/); assert.equal(partial.received, '6000000');
+
+  const burned = NearService.evaluateReceipt(chain(burnEv('10000000')), opts);
+  assert.equal(burned.ok, false);
+
+  // transfer-call where the receiver keeps everything (resolve emits no refund event) still settles
+  assert.equal(NearService.evaluateReceipt(chain(), opts).ok, true);
+  // overpayment with a small refund still covers the invoice
+  const over = { ...pay, amount: '12000000' };
+  const r = NearService.evaluateReceipt({ status: { SuccessValue: '' }, receipts_outcome: [ev('usdc.testnet', [over]), ev('usdc.testnet', [refund('2000000')])] }, opts);
+  assert.equal(r.ok, true); assert.equal(r.received, '10000000');
+});

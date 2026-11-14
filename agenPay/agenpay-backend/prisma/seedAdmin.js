@@ -13,8 +13,13 @@ async function main() {
   const email = process.env.ADMIN_EMAIL;
   const password = process.env.ADMIN_PASSWORD;
 
+  // The admin portal is optional: with neither variable set, skip cleanly so a deploy build never fails on it.
+  if (!email && !password) {
+    console.log('ℹ️  ADMIN_EMAIL/ADMIN_PASSWORD not set: admin portal not seeded (optional).');
+    return;
+  }
   if (!email || !password) {
-    console.error('❌ Set ADMIN_EMAIL and ADMIN_PASSWORD in .env first.');
+    console.error('❌ Set both ADMIN_EMAIL and ADMIN_PASSWORD (or neither, to skip the admin portal).');
     process.exit(1);
   }
   if (password.length < 8) {

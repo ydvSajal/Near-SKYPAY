@@ -67,7 +67,7 @@ npx prisma db push
 node --test --test-isolation=none test/*.test.js
 ```
 
-Expected: schema validation succeeds, database tables are created, and the current backend suite reports 42 passing tests. Tests do not prove a connection to the configured live services. The API refuses startup when JWT_SECRET is missing.
+Expected: schema validation succeeds, database tables are created, and the current backend suite reports 59 passing tests. Tests do not prove a connection to the configured live services. The API refuses startup when JWT_SECRET is missing.
 
 ## 4. Prepare native NEAR testnet infrastructure
 
@@ -89,7 +89,7 @@ The backend loads `.env.near` before `.env`; existing process environment variab
 node server.js
 ```
 
-Expected startup includes `SkyPay API on :3001` and a NEAR testnet configuration summary. Open `http://localhost:3001/health`. This endpoint is a liveness/configuration response; its database label is not an active database probe. Actual registration and authenticated status calls are stronger readiness checks.
+Expected startup includes `SkyPay API on :3001` and a NEAR testnet configuration summary. Open `http://localhost:3001/health`. It runs `SELECT 1` against the database with a 3 s timeout: 200 with `database: connected`, or 503 `degraded`. `node scripts/agent-smoke.mjs` is the fuller readiness check.
 
 ## 6. Install and start the frontend
 
@@ -115,7 +115,7 @@ For local development:
 npm run dev
 ```
 
-Open `http://localhost:3000`. For a production-mode check, run `npm run lint`, `npm run build`, then `npm start`. The latest review's build was blocked by runner spawn EPERM; a successful production build is still required in a suitable development environment. Do not disable type checking to bypass that limitation.
+Open `http://localhost:3000`. For a production-mode check, run `npm run lint`, `npm run build`, then `npm start`. The production build passed on November 15, 2026.
 
 ## Environment reference
 
@@ -127,7 +127,7 @@ Open `http://localhost:3000`. For a production-mode check, run `npm run lint`, `
 | NEAR_RELAYER_ACCOUNT, NEAR_RELAYER_KEY | Sponsor identity and signing key; server-side only |
 | NEAR_USDC_CONTRACT, NEAR_USDC_IS_TEST_TOKEN | Pinned NEP-141 test token and explicit test-token behavior; use `true` for this demonstration |
 | NEAR_KEY_ENC_SECRET | Encrypts the restricted agent keys; maintain a protected recovery copy |
-| AI_PROVIDER plus GEMINI_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY or MINIMAX_API_KEY | Optional chat agent; configure one supported provider. Model overrides are in the backend example |
+| AI_PROVIDER plus GEMINI_API_KEY, OPENAI_API_KEY or OPENROUTER_API_KEY | Optional chat agent; configure one supported provider. Model overrides are in the backend example |
 | EMAIL_SERVICE, EMAIL_USER, EMAIL_PASS, EMAIL_FROM | Optional SMTP. Without usable credentials the email adapter logs fixture output |
 | NOTION_CLIENT_ID, NOTION_CLIENT_SECRET, NOTION_REDIRECT_URI | Optional OAuth workspace connection. Register the callback matching the backend origin |
 | ONECLICK_API_URL, ONECLICK_JWT, INTENTS_QUOTE_RECIPIENT | Optional dry quotes; JWT depends on provider access. Testnet quote recipient is a mainnet pricing placeholder, not the company account |

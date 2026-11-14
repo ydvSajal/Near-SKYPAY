@@ -17,7 +17,7 @@ Read [CLAIMS.md](CLAIMS.md) for what is and is not claimed. Everything below is 
 ## Level 1: no secrets, no network (about 1 minute)
 
 ```sh
-cd agenPay/agenpay-backend && npm ci && npm test          # expect: tests 58, pass 58, fail 0
+cd agenPay/agenpay-backend && npm ci && npm test          # expect: tests 59, pass 59, fail 0
 cd ../agenpay-frontend    && npm ci && npx tsc --noEmit && npm run lint
 cd ../../contracts        && cargo test -p skypay-vault --lib   # needs Rust; same job runs in CI
 ```
@@ -31,14 +31,14 @@ Needs Docker (Postgres) and Node 22+.
 ```sh
 docker run -d --name skypay-pg -e POSTGRES_PASSWORD=skypay -e POSTGRES_DB=skypay -p 5434:5432 postgres:16
 cd agenPay/agenpay-backend
-cp .env.example .env          # DATABASE_URL already points at localhost:5434
+cp .env.example .env          # DATABASE_URL already points at localhost:5434; no NEAR keys needed for this level
 npx prisma db push
 npm start                     # terminal 1: http://localhost:3001
 
-node scripts/agent-smoke.mjs  # terminal 2: expect "ALL CHECKS PASSED" (22 checks)
+node scripts/agent-smoke.mjs  # terminal 2: expect "ALL CHECKS PASSED" (22 checks); add a URL to target another API
 ```
 
-`agent-smoke.mjs` registers a throwaway user and checks: health, auth, that every private route returns 401 without a token, new-user state, refusal of payments without a company, the x402 facilitator, and 404s (not 500s) on unknown public ids. It exits non-zero on any failure.
+`agent-smoke.mjs` registers a throwaway user and checks: health, auth, that nine private routes (including admin and CSV exports) return 401 without a token, new-user state, refusal of payments without a company, the x402 facilitator, and 404s (not 500s) on unknown public ids. It exits non-zero on any failure.
 
 Frontend: `cd agenPay/agenpay-frontend && cp .env.local.example .env.local && npm install && npm run dev` then open <http://localhost:3000>.
 
@@ -73,7 +73,7 @@ The Finance sidebar has a **Readiness** tab: a live checklist with a badge showi
 ```sh
 TOKEN=$(curl -s -X POST localhost:3001/api/auth/login -H 'Content-Type: application/json' \
   -d '{"email":"<you>","password":"<pw>"}' | node -pe 'JSON.parse(require("fs").readFileSync(0)).token')
-curl -s -H "Authorization: Bearer $TOKEN" localhost:3001/api/export/invoices.csv    # integer-unit amounts, tx links
+curl -s -H "Authorization: Bearer $TOKEN" localhost:3001/api/export/invoices.csv    # fixed 6-decimal amounts, UTC, tx links
 curl -s -i localhost:3001/x402pay/<invoiceId>                                       # unpaid invoice: HTTP 402 + payment requirements
 curl -s -X POST localhost:3001/api/vault/payments -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"payeeId":"<id>","amount":"1","idempotencyKey":"k1"}'   # run twice: same result; change amount with same key: 409

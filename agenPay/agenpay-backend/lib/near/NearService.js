@@ -119,6 +119,9 @@ export class NearService {
     let received = 0n;
     let from = null;
     let otherMemo = 0n;
+    // Money that left the receiver in the same transaction (ft_transfer_call refund via ft_resolve_transfer,
+    // or a burn when the refund target is gone). The invoice counts only what the receiver kept.
+    let outgoing = 0n;
     for (const ro of res.receipts_outcome || []) {
       const o = ro.outcome;
       if (o.executor_id !== token) continue;
@@ -127,14 +130,23 @@ export class NearService {
         if (!line.startsWith('EVENT_JSON:')) continue;
         let ev;
         try { ev = JSON.parse(line.slice(11)); } catch { continue; }
-        if (ev.standard !== 'nep141' || ev.event !== 'ft_transfer') continue;
+        if (ev.standard !== 'nep141') continue;
         for (const d of ev.data || []) {
+          if (ev.event === 'ft_burn') { if (d.owner_id === receiver) outgoing += BigInt(d.amount); continue; }
+          if (ev.event !== 'ft_transfer') continue;
+          if (d.old_owner_id === receiver) { outgoing += BigInt(d.amount); continue; }
           if (d.new_owner_id !== receiver) continue;
           if (memos.includes(d.memo)) { received += BigInt(d.amount); from = d.old_owner_id; } else otherMemo += BigInt(d.amount);
         }
       }
     }
     if (received === 0n) return { ok: false, reason: otherMemo > 0n ? 'transfer is not tagged with this invoice (memo must be the invoice number)' : 'no matching token transfer to receiver' };
+    if (outgoing > 0n) {
+      // ponytail: any outflow from the receiver in the paying tx is treated as a refund of this payment; a payer can always resend cleanly.
+      const kept = received > outgoing ? received - outgoing : 0n;
+      if (kept === 0n) return { ok: false, reason: 'transfer was refunded to the payer' };
+      received = kept;
+    }
     if (received < BigInt(minAmount)) return { ok: false, reason: 'amount below invoice total', received: received.toString() };
     return { ok: true, received: received.toString(), from, blockHash: res.transaction_outcome?.block_hash };
   }
