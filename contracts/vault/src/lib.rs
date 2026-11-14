@@ -230,6 +230,10 @@ impl Vault {
             },
         );
         // Clear refusal (whole call reverts, nothing reserved) instead of the runtime's LackBalanceForState.
+        // store::LookupMap caches writes until the end of the call; flush first so storage_usage() already
+        // counts the new payment record (and the updated agent entry).
+        self.agents.flush();
+        self.payments.flush();
         let needed = (env::storage_usage() as u128) * env::storage_byte_cost().as_yoctonear() + STORAGE_HEADROOM;
         require!(env::account_balance().as_yoctonear() >= needed, "vault storage reserve low: send NEAR to the vault account");
         emit("pay_reserved", json!({"payment_id": payment_id, "agent": agent_id, "recipient": recipient,

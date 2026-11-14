@@ -17,6 +17,8 @@ const NEAR_ACCOUNT = /^(?=.{2,64}$)(([a-z\d]+[-_])*[a-z\d]+\.)*([a-z\d]+[-_])*[a
 const OPEN = ['needs_review', 'flagged'];
 const DUP_WINDOW_MS = 30 * 86_400_000;
 const token = () => crypto.randomBytes(18).toString('base64url');
+/** Idempotency key of the n-th payment identity (n = tries, starting at 1) issued for a bill. */
+export const billPaymentKey = (billId, tries) => `bill:${billId}:${tries - 1}`;
 
 export class Bills {
   constructor({ prisma, skypay }) {
@@ -129,20 +131,29 @@ export class Bills {
     if (bill.claimedAccount && bill.claimedAccount !== payee.nearAccount && !flags.includes('payout_changed')) flags.push('payout_changed');
     if (flags.length && !acknowledgeFlags) throw httpErr(409, `review flags first: ${flags.join(', ')}`);
 
+    // Dispatch identity: `tries` counts payment ids issued for this bill. A NEW id is issued only after a
+    // definitive on-chain refusal ("failed"). A bill reopened by repairStuck reuses its previous id, so a request
+    // that was still in flight and this retry share one vault payment id: the unique PaymentAttempt.paymentId
+    // (and the vault's own replay check) lets only one of them dispatch.
+    const newTries = bill.status === 'failed' || bill.tries === 0 ? bill.tries + 1 : bill.tries;
     const claim = await this.prisma.supplierBill.updateMany({
       where: { id: bill.id, status: bill.status, tries: bill.tries },
-      data: { status: 'paying', payeeId: payee.id, tries: bill.tries + 1 },
+      data: { status: 'paying', payeeId: payee.id, tries: newTries },
     });
     if (!claim.count) throw httpErr(409, 'bill is already being paid');
     let attempt;
     try {
       attempt = await this.skypay.paySupplier(userId, {
         payeeId: payee.id, amount: formatUnits(bill.amount), memo: `Bill ${bill.invoiceNumber} (${bill.submitterName})`.slice(0, 120),
-        idempotencyKey: `bill:${bill.id}:${bill.tries}`,
+        idempotencyKey: billPaymentKey(bill.id, newTries),
       });
     } catch (e) {
-      // nothing was dispatched (validation/provisioning error before the attempt row): release the claim
-      await this.prisma.supplierBill.update({ where: { id: bill.id }, data: { status: bill.status, tries: bill.tries } });
+      // Release only our own claim. Restoring `tries` keeps the same dispatch identity for the next click,
+      // so even if an attempt row was written before the error, the retry resolves to that same payment.
+      await this.prisma.supplierBill.updateMany({
+        where: { id: bill.id, status: 'paying', paymentAttemptId: null, tries: newTries },
+        data: { status: bill.status, tries: bill.tries },
+      });
       throw e;
     }
     const out = await this.prisma.supplierBill.update({
@@ -154,18 +165,22 @@ export class Bills {
   /**
    * Crash repair for a bill claimed as "paying" whose payment link was never written.
    * The vault payment id is deterministic, and paySupplier persists its attempt BEFORE dispatch, so:
-   * attempt row exists -> link it (reconcile handles its outcome); no row -> nothing was sent, reopen the bill.
+   * attempt row exists -> link it (reconcile handles its outcome); no row -> reopen the bill.
+   * Reopening is safe even if the original request is still alive: the bill keeps `tries`, so the next Pay uses
+   * the SAME payment id, and only one of the two requests can create that attempt and dispatch.
+   * Every write is conditional on the state that was read (fencing against a concurrent Pay or another worker).
    */
-  async repairStuck(olderThanMs = 2 * 60_000) {
+  async repairStuck(olderThanMs = 15 * 60_000) {
     const stuck = await this.prisma.supplierBill.findMany({
       where: { status: 'paying', paymentAttemptId: null, updatedAt: { lt: new Date(Date.now() - olderThanMs) } }, take: 50,
     });
+    const fence = (b) => ({ id: b.id, status: 'paying', paymentAttemptId: null, tries: b.tries });
     for (const b of stuck) {
-      const a = await this.prisma.paymentAttempt.findUnique({ where: { paymentId: paymentIdFor(b.userId, `bill:${b.id}:${b.tries - 1}`) } });
-      if (a) await this.prisma.supplierBill.update({ where: { id: b.id }, data: { paymentAttemptId: a.id, status: billStatusOf(a) } });
+      const a = await this.prisma.paymentAttempt.findUnique({ where: { paymentId: paymentIdFor(b.userId, billPaymentKey(b.id, b.tries)) } });
+      if (a) await this.prisma.supplierBill.updateMany({ where: fence(b), data: { paymentAttemptId: a.id, status: billStatusOf(a) } });
       else {
         const flags = Array.isArray(b.flags) ? b.flags : [];
-        await this.prisma.supplierBill.update({ where: { id: b.id }, data: { status: flags.length ? 'flagged' : 'needs_review' } });
+        await this.prisma.supplierBill.updateMany({ where: fence(b), data: { status: flags.length ? 'flagged' : 'needs_review' } });
       }
     }
     return stuck.length;

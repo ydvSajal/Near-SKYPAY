@@ -6,7 +6,7 @@
 
 The core demonstration is native NEAR testnet with test tUSDC, which has no value. Intents is a separate mainnet dry-price preview; it does not settle this invoice. State these boundaries before showing a payment.
 
-For a no-credentials check, run the README offline commands: 54 backend tests, 6 payroll tests, TypeScript and lint passed on November 14. These tests use doubles for external boundaries. For the product walkthrough below, first complete SETUP and use controlled test data, a funded testnet sponsor and an existing testnet supplier account. Model, SMTP and Notion credentials are optional extensions; describe absent integrations as fixtures.
+For a no-credentials check, run the README offline commands: 58 backend tests, 6 payroll tests, TypeScript and lint passed on November 14. These tests use doubles for external boundaries. For the product walkthrough below, first complete SETUP and use controlled test data, a funded testnet sponsor and an existing testnet supplier account. Model, SMTP and Notion credentials are optional extensions; describe absent integrations as fixtures.
 
 ## 1. Create the company workspace
 

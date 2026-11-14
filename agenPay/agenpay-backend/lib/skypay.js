@@ -243,20 +243,28 @@ export class SkyPay {
     const base = parseUnits(String(amount));
     const paymentId = paymentIdFor(userId, idempotencyKey || crypto.randomUUID());
 
-    const existing = await this.prisma.paymentAttempt.findUnique({ where: { paymentId } });
-    if (existing) {
+    const same = (existing) => {
       if (existing.recipient !== payee.nearAccount || existing.amount !== base ||
           JSON.parse(existing.requestHash || '{}').memo !== String(memo || '')) throw httpErr(409, 'idempotency key reused with a different payment');
       return existing;
-    }
+    };
+    const existing = await this.prisma.paymentAttempt.findUnique({ where: { paymentId } });
+    if (existing) return same(existing);
     const expiresAtMs = Date.now() + 15 * 60_000;
-    let attempt = await this.prisma.paymentAttempt.create({
-      data: {
-        userId, direction: 'OUT', paymentId, recipient: payee.nearAccount, amount: base, network: `near:${this.near.network}`,
-        status: 'submitted', requestHash: JSON.stringify({ memo: String(memo || ''), expiresAtMs }),
-        memo: memo ? String(memo).slice(0, 120) : null, batchId: batchId || null,
-      },
-    });
+    let attempt;
+    try {
+      attempt = await this.prisma.paymentAttempt.create({
+        data: {
+          userId, direction: 'OUT', paymentId, recipient: payee.nearAccount, amount: base, network: `near:${this.near.network}`,
+          status: 'submitted', requestHash: JSON.stringify({ memo: String(memo || ''), expiresAtMs }),
+          memo: memo ? String(memo).slice(0, 120) : null, batchId: batchId || null,
+        },
+      });
+    } catch (e) {
+      // A concurrent request with the same key created the row first: it owns the dispatch, we never send.
+      if (e.code === 'P2002') return same(await this.prisma.paymentAttempt.findUnique({ where: { paymentId } }));
+      throw e;
+    }
     try {
       const r = await this.near.agentPay({
         user: u, paymentId, recipient: payee.nearAccount, amount: base, invoiceRef: paymentId, expiresAtMs,

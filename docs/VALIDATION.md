@@ -8,14 +8,24 @@ Changes in this run: supplier bill inbox, readiness checklist, verified key impo
 
 | Command | Actual result |
 |---|---|
-| Backend `node --test --test-isolation=none test/*.test.js` | **54 pass, 0 fail**; [output](../evidence/backend-tests-20261114.txt). New: `bills.test.js` (10), `provision.test.js` (2), recovery worker batch refresh |
+| Backend `node --test --test-isolation=none test/*.test.js` | **58 pass, 0 fail**; [output](../evidence/backend-tests-20261114.txt). New: `bills.test.js` (11), `provision.test.js` (5), recovery worker batch refresh |
 | Frontend `node --test --test-isolation=none lib/payroll-core.test.ts` | **6 pass, 0 fail** |
 | Frontend `npx tsc --noEmit`, `npx eslint .` | Exit 0, no diagnostics |
 | Frontend `npm run build` | **Succeeded** (dev server stopped first; the earlier EPERM was a locked `.next`) |
-| `bash contracts/build-and-test.sh` (WSL Ubuntu 24.04, Rust 1.99.1, cargo-near 0.23.0) | **22 unit + 1 sandbox pass**; vault wasm sha256 `ee38669f68d72b433db0a5e4c6b6929fdbb42109887af71828b9876d0a2483af`, now in `near-artifacts/` and SHA256SUMS; [output](../evidence/contract-rebuild-20261114.txt) |
+| `bash contracts/build-and-test.sh` (WSL Ubuntu 24.04, Rust 1.99.1, cargo-near 0.23.0) | **24 unit + 1 sandbox pass** after the review follow-up; vault wasm sha256 `ba41312d407f3ecfbb97c79eee05bc4a4f1321dde0b212ae57ffddd59a4b69a1`, now in `near-artifacts/` and SHA256SUMS; [output](../evidence/contract-rebuild-20261114-review.txt). The earlier `ee38669f…` build is what the live smoke company runs |
 | `node scripts/bills-smoke.mjs` (local API + Postgres, NEAR testnet) | Fresh company provisioned on the rebuilt wasm (on-chain code hash `H2uuyHMydphkNWQJynPrbvDcB5A67wuo9sHhQat2dbtA` = the build's bs58 hash); bill paid once to the registered supplier; repeat click not resent; changed payout account flagged and ignored; unknown sender refused; duplicate refused; other company sees nothing; [transcript](../evidence/bills-smoke-testnet.txt) |
 | `GET /health` (local) | 200 with `database: connected` from a real `SELECT 1` |
 | Browser check (Chrome, local) | Finance readiness rendered from live status; random wrong owner key refused with nothing stored; bill status and submit pages rendered |
+
+### Review follow-up (same day)
+
+An external review reproduced three defects with fixtures; all are fixed and covered by tests:
+
+| Finding | Fix | Test |
+|---|---|---|
+| Bill crash repair could reopen a bill while its first Pay request was still running; a second Pay used a new payment id, so two dispatches were possible | A new payment identity is issued only after a definitive vault refusal; a reopened bill reuses its in-flight identity, so the unique `paymentId` lets one request dispatch (`paySupplier` returns the winner's row on a create race). Repair writes are conditional on the state read; repair threshold raised to 15 min | `bills.test.js`: stalled first request + repair + second Pay = one dispatch, one payment id |
+| `accessKeys()` turned every RPC error into "no keys", so a resumed setup could treat a vault that still had its key as keyless | Fails closed: only "account does not exist" reads as empty; vault and agent steps re-read keys on chain and refuse to complete unless the vault has zero keys and the agent exactly one pay-only key | `provision.test.js`: RPC failure mid-resume stops setup; a silently failed key deletion is caught; `accessKeys` error classification |
+| Vault storage check ran before `store::LookupMap` flushed the new record, so it did not include it | `pay` flushes `agents` and `payments` before the check | Boundary tests: 1 yocto short is refused, exact amount accepted; both fail with the flush removed |
 
 Not done in this run: Postgres failure injection for `/health`, a real mid-provisioning crash on testnet, Notion/SMTP delivery for bill payouts, and a reproducible (Docker) cargo-near build.
 

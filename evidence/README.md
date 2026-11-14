@@ -8,8 +8,9 @@ Read each transcript's own timestamp, network, token and account identities. Dif
 
 | File | Meaning |
 |---|---|
-| [backend-tests-20261114.txt](backend-tests-20261114.txt) | 54 passing backend tests (doubles), incl. supplier bills, resumable provisioning, batch recovery |
-| [contract-rebuild-20261114.txt](contract-rebuild-20261114.txt) | Fresh cargo-near rebuild in WSL, 22 unit + 1 sandbox test, artifact hashes |
+| [backend-tests-20261114.txt](backend-tests-20261114.txt) | 58 passing backend tests (doubles), incl. supplier bills, resumable provisioning, batch recovery |
+| [contract-rebuild-20261114-review.txt](contract-rebuild-20261114-review.txt) | Review follow-up rebuild: 24 unit (incl. storage-reserve boundary, shown failing without the fix) + 1 sandbox; vault sha256 `ba41312d…` |
+| [contract-rebuild-20261114.txt](contract-rebuild-20261114.txt) | First rebuild today (22 unit + 1 sandbox); superseded by contract-rebuild-20261114-review.txt |
 | [bills-smoke-testnet.txt](bills-smoke-testnet.txt) | Live testnet supplier-bill journey on a freshly provisioned company running the rebuilt vault; test token only |
 
 ## Earlier local recheck

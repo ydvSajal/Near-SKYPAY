@@ -180,14 +180,21 @@ export class NearService {
     return res.transaction.hash;
   }
 
-  /** Public keys on an account, or [] when the account does not exist. */
+  /**
+   * Public keys on an account. Fails closed: any RPC error other than "account does not exist" THROWS,
+   * because callers decide custody (e.g. "the vault is keyless") from this answer.
+   */
   async accessKeys(id) {
+    let r;
     try {
-      const r = await this.rpc('query', { request_type: 'view_access_key_list', finality: 'final', account_id: id });
-      return r.keys.map((k) => ({ publicKey: k.public_key, permission: k.access_key.permission }));
-    } catch {
-      return [];
+      r = await this.rpc('query', { request_type: 'view_access_key_list', finality: 'final', account_id: id });
+    } catch (e) {
+      const why = JSON.stringify(e.rpcError || {}) + String(e.message);
+      if (/UNKNOWN_ACCOUNT|does not exist/i.test(why)) return [];
+      throw new Error(`could not read access keys of ${id}: ${e.message}`);
     }
+    if (!Array.isArray(r?.keys)) throw new Error(`malformed access key list for ${id}`);
+    return r.keys.map((k) => ({ publicKey: k.public_key, permission: k.access_key.permission }));
   }
 
   /** view_account: NEAR balance and storage usage, or null. */
@@ -265,6 +272,10 @@ export class NearService {
       } else if (!initialized || keys.length) {
         throw new Error(`${vault} is in an unexpected state (keys=${keys.length}, initialized=${initialized}); not reusing it`);
       } else await this.registerOnToken(vault); // key already deleted before the crash: only finish registration
+      // never mark the vault done unless the chain itself reports it keyless and initialized for this company
+      const after = await this.accessKeys(vault);
+      if (after.length) throw new Error(`${vault} still has ${after.length} access key(s); setup stopped`);
+      if (!(await this.vaultState(vault).then((x) => x?.owner === company, () => false))) throw new Error(`${vault} is not initialized for ${company}`);
       log.push({ kind: 'account_create', detail: `${vault} (vault contract deployed, all keys deleted)` });
     });
 
@@ -282,6 +293,10 @@ export class NearService {
         keys = await this.accessKeys(agent);
       }
       if (keys.some((k) => k.publicKey === fullPub)) await this.account(agent, this.decrypt(s.agentFullEnc)).deleteKey(fullPub);
+      const after = await this.accessKeys(agent);
+      if (after.length !== 1 || after[0].publicKey !== fcPub || !after[0].permission?.FunctionCall) {
+        throw new Error(`${agent} key state is not exactly one pay-only key; setup stopped`);
+      }
       log.push({ kind: 'account_create', detail: `${agent} (function-call key: ${vault}.pay only)` });
     });
 

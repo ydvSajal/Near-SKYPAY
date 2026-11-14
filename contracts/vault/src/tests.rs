@@ -82,6 +82,46 @@ fn payment_refused_when_storage_reserve_is_exhausted() {
     v.pay("p1".into(), acc("bob.test"), U128(10), "INV-1".into(), T0 + HOUR);
 }
 
+/// Storage (bytes) a payment record adds, measured on a first payment with the same id/ref lengths.
+/// Returns the vault after that probe payment, plus base usage and record size.
+fn storage_probe() -> (Vault, u64, u64) {
+    let mut v = setup();
+    let base = 1_000_000u64;
+    let mut c = ctx("agent.test", T0);
+    c.storage_usage(base).account_balance(NearToken::from_near(100));
+    testing_env!(c.build());
+    // warm-up payment flushes setup()'s pending agent entry, so the probe below measures one record only
+    v.pay("p0".into(), acc("bob.test"), U128(10), "INV-0".into(), T0 + HOUR);
+    testing_env!(c.build());
+    v.pay("p1".into(), acc("bob.test"), U128(10), "INV-1".into(), T0 + HOUR);
+    let record = env::storage_usage() - base;
+    assert!(record > 100, "a payment record must be counted (got {record} bytes)");
+    (v, base, record)
+}
+
+fn pay_with_balance(v: &mut Vault, base: u64, balance: u128) {
+    let mut c = ctx("agent.test", T0);
+    c.storage_usage(base).account_balance(NearToken::from_yoctonear(balance));
+    testing_env!(c.build());
+    v.pay("p2".into(), acc("bob.test"), U128(10), "INV-2".into(), T0 + HOUR);
+}
+
+#[test]
+#[should_panic(expected = "vault storage reserve low")]
+fn storage_check_counts_the_new_record_one_yocto_short_is_refused() {
+    let (mut v, base, record) = storage_probe();
+    let needed = (base + record) as u128 * env::storage_byte_cost().as_yoctonear() + STORAGE_HEADROOM;
+    pay_with_balance(&mut v, base, needed - 1);
+}
+
+#[test]
+fn storage_check_exact_reserve_after_the_new_record_is_accepted() {
+    let (mut v, base, record) = storage_probe();
+    let needed = (base + record) as u128 * env::storage_byte_cost().as_yoctonear() + STORAGE_HEADROOM;
+    pay_with_balance(&mut v, base, needed);
+    assert_eq!(bal(&v), (970, 30));
+}
+
 #[test]
 #[should_panic(expected = "exceeds per-payment limit")]
 fn a09_over_per_payment_limit_refused() {

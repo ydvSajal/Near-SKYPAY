@@ -72,6 +72,42 @@ test('provisioning resumes after a crash at every step without duplicate account
   }
 });
 
+test('a failed key-list read during resume stops setup instead of treating the vault as keyless', async () => {
+  const owner = KeyPair.fromRandom('ed25519').getPublicKey().toString();
+  // crash right after the vault contract is initialized (vault key still installed)
+  const { near, accounts, ops } = fakeChain(3);
+  let state = null;
+  const save = async (s) => { state = structuredClone(s); };
+  await assert.rejects(near.provision({ slug: 'acme1234', ownerPublicKey: owner, state, save }), /crash after/);
+  assert.match(ops.at(-1), /^new /);
+  const realKeys = near.accessKeys;
+  near.accessKeys = async (id) => { if (id.endsWith('-vault.testnet')) throw new Error('could not read access keys: RPC timeout'); return realKeys(id); };
+  await assert.rejects(near.provision({ slug: 'acme1234', ownerPublicKey: owner, state, save }), /could not read access keys/);
+  assert.ok(!state.done?.includes('vault'), 'vault step is not marked done');
+  assert.equal(accounts.get('acme1234-vault.testnet').keys.size, 1, 'key still present, and setup did not report success');
+  near.accessKeys = realKeys; // RPC recovers: resume finishes and deletes the key
+  await near.provision({ slug: 'acme1234', ownerPublicKey: owner, state, save });
+  assert.equal(accounts.get('acme1234-vault.testnet').keys.size, 0);
+});
+
+test('setup verifies on chain that the vault really became keyless', async () => {
+  const owner = KeyPair.fromRandom('ed25519').getPublicKey().toString();
+  const { near } = fakeChain(-1);
+  const realAccount = near.account;
+  near.account = (id, secret) => { const a = realAccount(id, secret); if (id.endsWith('-vault.testnet')) a.deleteKey = async () => {}; return a; };
+  await assert.rejects(near.provision({ slug: 'acme1234', ownerPublicKey: owner }), /still has 1 access key/);
+});
+
+test('accessKeys fails closed on RPC errors; only a missing account reads as no keys', async () => {
+  const near = new NearService({ NEAR_USDC_CONTRACT: 't', NEAR_RELAYER_ACCOUNT: 'r', NEAR_RELAYER_KEY: 'x', JWT_SECRET: 's' });
+  near.rpc = async () => { throw Object.assign(new Error('Server error'), { rpcError: { name: 'HANDLER_ERROR', cause: { name: 'TIMEOUT_ERROR' } } }); };
+  await assert.rejects(near.accessKeys('v.testnet'), /could not read access keys/);
+  near.rpc = async () => { throw Object.assign(new Error('account v.testnet does not exist while viewing'), { rpcError: { cause: { name: 'UNKNOWN_ACCOUNT' } } }); };
+  assert.deepEqual(await near.accessKeys('v.testnet'), []);
+  near.rpc = async () => ({});
+  await assert.rejects(near.accessKeys('v.testnet'), /malformed/);
+});
+
 test('resume refuses a different owner key', async () => {
   const { near } = fakeChain(-1);
   await assert.rejects(near.provision({ slug: 'x1', ownerPublicKey: 'ed25519:B', state: { slug: 'x1', ownerPublicKey: 'ed25519:A' } }), { status: 409 });

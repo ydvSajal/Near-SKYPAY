@@ -8,8 +8,8 @@ This file summarizes current claim support. Source references establish implemen
 
 | Claim | Implementation / check | Supported level and limit |
 |---|---|---|
-| Native NEAR controls allocated operating funds | contracts/vault; owner, agent, payee, budget, expiry, reference-length and storage-reserve checks | 22 unit tests + sandbox scenario rerun November 14 on a fresh cargo-near rebuild (evidence/contract-rebuild-20261114.txt); live company provisioned on the rebuilt WASM. Older deployed vaults keep older code (no length caps) |
-| Supplier bills are paid only to the registered supplier, once | lib/bills.js: registry match by email/claimed account, flags, status-claimed dispatch with deterministic payment id, crash repair, reconcile sync | 10 local tests (redirect attempt, duplicates, company boundary, refusal retry, unknown not resent, crash repair) and a live testnet run (evidence/bills-smoke-testnet.txt). Per-bill owner approval is enforced by the API, not the contract |
+| Native NEAR controls allocated operating funds | contracts/vault; owner, agent, payee, budget, expiry, reference-length and storage-reserve checks | 24 unit tests (incl. storage-reserve boundary) + sandbox scenario rerun November 14 on a fresh cargo-near rebuild (evidence/contract-rebuild-20261114-review.txt). A live company ran the first rebuild; the review-fix build (ba41312d…) is covered by unit/sandbox tests, not yet by a live provisioning. Older deployed vaults keep older code (no length caps) |
+| Supplier bills are paid only to the registered supplier, once | lib/bills.js: registry match by email/claimed account, flags, status-claimed dispatch with deterministic payment id, crash repair, reconcile sync | 11 local tests (in-flight request vs crash repair, redirect attempt, duplicates, company boundary, refusal retry, unknown not resent, crash repair) and a live testnet run (evidence/bills-smoke-testnet.txt). Per-bill owner approval is enforced by the API, not the contract |
 | Interrupted setup does not create duplicate accounts | NearService.provision persists encrypted keys and step progress before each chain action and checks chain state on resume | Local test crashes after every chain operation and resumes; live setup ran through the new path once. A real mid-setup crash on testnet was not reproduced |
 | A wrong owner-key backup is refused before use | Frontend derives the public key and compares it with the registered owner key before storing | Browser check on November 14 with a random key: refused, nothing stored |
 | Health reports database readiness | /health runs `SELECT 1` with a 3 s timeout; 503 when it fails | Live 200 observed locally; failure path not injected |
@@ -40,7 +40,7 @@ This file summarizes current claim support. Source references establish implemen
 
 ## Latest local checks
 
-November 14, 2026: **54 backend tests**, frontend TypeScript and ESLint passed; **22 vault unit tests and the sandbox test** passed on a fresh rebuild in WSL; the supplier bill inbox ran live on testnet against a freshly provisioned company. See [exact commands and actual results](docs/VALIDATION.md) rather than inferring live behavior from counts.
+November 14, 2026: **58 backend tests**, frontend TypeScript and ESLint passed; **24 vault unit tests and the sandbox test** passed on a fresh rebuild in WSL; the supplier bill inbox ran live on testnet against a freshly provisioned company. See [exact commands and actual results](docs/VALIDATION.md) rather than inferring live behavior from counts.
 
 These are observations from the latest engineering recheck, not promises that subsequent changes will preserve the same counts. The documentation-only revision did not rerun payment scripts or send external communications.
 

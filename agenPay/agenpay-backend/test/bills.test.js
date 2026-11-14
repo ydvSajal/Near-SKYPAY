@@ -158,11 +158,36 @@ test('crash between claim and link: repair links a persisted attempt, or reopens
   Object.assign(a, { status: 'paying', tries: 1, updatedAt: old });
   Object.assign(c, { status: 'paying', tries: 1, updatedAt: old });
   prisma.paymentAttempt.rows.push({ id: 'pa1', paymentId: paymentIdFor('u1', `bill:${a.id}:0`), status: 'settled' });
-  await bills.repairStuck();
+  await bills.repairStuck(5 * 60_000);
   assert.equal(a.status, 'paid');
   assert.equal(a.paymentAttemptId, 'pa1');
   assert.equal(c.status, 'needs_review'); // nothing persisted for it: reopened, not paid
   assert.equal(c.paymentAttemptId, null);
+});
+
+test('repair reopens a bill whose request is still in flight: a second Pay can never send a second payment', async () => {
+  const s = setup();
+  const b = await s.bills.submit(await s.bills.inboxToken('u1'), form());
+  // first Pay stalls right before persisting its attempt (e.g. slow DB)
+  const realCreate = s.prisma.paymentAttempt.create;
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  let calls = 0;
+  s.prisma.paymentAttempt.create = async (args) => { if (calls++ === 0) await gate; return realCreate(args); };
+  const first = s.bills.pay('u1', b.id);
+  await new Promise((r) => setTimeout(r, 10));
+  // it looks stale: the worker reopens the bill because no attempt row exists yet
+  s.prisma.supplierBill.rows[0].updatedAt = new Date(Date.now() - 60 * 60_000);
+  await s.bills.repairStuck(0);
+  assert.equal(s.prisma.supplierBill.rows[0].status, 'needs_review');
+  // owner clicks Pay again, then the stalled request resumes
+  const second = await s.bills.pay('u1', b.id);
+  release();
+  const firstOut = await first;
+  assert.equal(s.sent.length, 1, 'exactly one dispatch');
+  assert.equal(second.payment.paymentId, firstOut.payment.paymentId, 'both requests resolve to the same payment');
+  assert.equal(s.prisma.paymentAttempt.rows.length, 1);
+  assert.equal(s.prisma.supplierBill.rows[0].status, 'paid');
 });
 
 test('public status shows only the contractor\'s own bill, no flags or registry data', async () => {

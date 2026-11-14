@@ -43,16 +43,16 @@ export function createNearRouter({ prisma, near, skypay, authenticateToken }) {
     if (u.vaultAccountId) {
       const [bal, vault, agent, vaultAcct, agentKeys] = await Promise.all([
         near.ftBalance(u.nearAccountId), near.vaultState(u.vaultAccountId), near.vaultAgent(u.vaultAccountId, u.agentAccountId),
-        near.accountInfo(u.vaultAccountId), near.accessKeys(u.agentAccountId),
+        near.accountInfo(u.vaultAccountId), near.accessKeys(u.agentAccountId).catch(() => null), // null = could not read
       ]);
       // gas allowance of the restricted agent key: adding NEAR to the agent account does NOT refill it
-      const fc = agentKeys.find((k) => k.permission?.FunctionCall)?.permission.FunctionCall;
+      const fc = agentKeys?.find((k) => k.permission?.FunctionCall)?.permission.FunctionCall;
       const allowance = fc?.allowance ?? null;
       // storage reserve: NEAR above what current state locks; each new payment record locks a little more
       const free = vaultAcct ? BigInt(vaultAcct.amount) - BigInt(vaultAcct.storage_usage) * 10n ** 19n : 0n;
       Object.assign(out, {
         companyBalance: bal, vaultAvailable: vault.available, vaultReserved: vault.reserved, agentPolicy: agent,
-        agentKey: { present: !!fc, allowanceNear: allowance === null ? null : toNear(allowance),
+        agentKey: agentKeys === null ? undefined : { present: !!fc, allowanceNear: allowance === null ? null : toNear(allowance),
           low: allowance !== null && BigInt(allowance) < YOCTO / 50n, // < 0.02 NEAR ≈ a few dozen payments
           payMethods: fc?.method_names || [] },
         vaultStorage: { freeNear: toNear(free > 0n ? free : 0n), approxPaymentsLeft: (free > 0n ? free / (PAYMENT_RECORD_BYTES * 10n ** 19n) : 0n).toString() },
