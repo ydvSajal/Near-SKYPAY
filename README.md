@@ -12,6 +12,7 @@ SkyPay lets a small agency run its money in one place: bill clients, take a supp
 |---|---|
 | Live app | <https://near-skypay.vercel.app> |
 | API health | <https://skypay-near-api.onrender.com/health> (returns `database: connected` when Postgres answers) |
+| **Agents: start here** | [AGENTS.md](AGENTS.md) (5-minute verification, one-command smoke test) |
 | Judge walkthrough | [docs/DEMO.md](docs/DEMO.md) |
 | Security model | [SECURITY.md](SECURITY.md) |
 | What is and is not claimed | [CLAIMS.md](CLAIMS.md) |
@@ -244,7 +245,7 @@ The same code runs at <https://near-skypay.vercel.app> (frontend, Vercel) and <h
 | **Originality** | The vault is a NEAR-native policy contract with no upgrade path; the agent holds only a pay-only key; supplier bills can be submitted by outsiders but can never choose where money goes. |
 | **Sustainability** | Testnet only today. A production path would need: a durable sponsor budget, a key-replacement workflow for the agent's gas allowance, refunds, and a security audit (Section 5). |
 
-**Evidence trail:** test outputs and live testnet transcripts are in [`evidence/`](evidence/README.md). Claims and their limits are in [CLAIMS.md](CLAIMS.md). Earlier planning, audits and superseded runs are in [`docsarchive/`](docsarchive/).
+**Evidence trail:** test outputs and live testnet transcripts are in [`evidence/`](evidence/README.md). Claims and their limits are in [CLAIMS.md](CLAIMS.md).
 
 **AI and tools used:** the agent in the app uses an LLM (Gemini, OpenAI, OpenRouter or MiniMax, configured by the operator). Development used Claude Code and Codex.
 
@@ -290,5 +291,4 @@ docs/
   OPERATIONS.md            recovery and troubleshooting
   VALIDATION.md            what was run, when, and the actual results
 evidence/                  test outputs and live testnet transcripts
-docsarchive/               superseded plans, audits, migration notes, old runs
 ```

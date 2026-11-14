@@ -24,8 +24,5 @@ Read each transcript's own timestamp, network, token and account identities. Dif
 | [contract-tests.txt](contract-tests.txt) | Historical Rust unit and sandbox output from an earlier vault build; superseded by the current run above |
 | [intents-dry-quote.txt](intents-dry-quote.txt) | Historical provider quote requests. Dry pricing only; no funds moved; prices are not current offers |
 
-## Superseded runs
-
-Earlier test and rebuild outputs are kept for history under [`docsarchive/evidence/`](../docsarchive/evidence/): the 42-test backend recheck, the payroll parser runs, the first contract rebuild, and earlier review outputs.
 
 For new evidence, record the command, commit or working-tree state, timestamp, network, asset contract, amount, relevant account roles, observed outcome and limitations. Do not publish private keys, access tokens, real customer records or invented transaction references. A screenshot is context only, not proof of payment.
