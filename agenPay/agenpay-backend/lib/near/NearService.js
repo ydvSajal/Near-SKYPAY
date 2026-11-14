@@ -197,6 +197,13 @@ export class NearService {
     return r.keys.map((k) => ({ publicKey: k.public_key, permission: k.access_key.permission }));
   }
 
+  /** Final-finality reads lag a few blocks behind a just-sent deleteKey; poll until `ok(keys)` or ~12s, then return the last read so the caller's own check still fails closed. */
+  async keysWhen(id, ok) {
+    let keys = await this.accessKeys(id);
+    for (let i = 0; i < 12 && !ok(keys); i++) { await new Promise((x) => setTimeout(x, 1000)); keys = await this.accessKeys(id); }
+    return keys;
+  }
+
   /** view_account: NEAR balance and storage usage, or null. */
   async accountInfo(id) {
     try {
@@ -273,7 +280,7 @@ export class NearService {
         throw new Error(`${vault} is in an unexpected state (keys=${keys.length}, initialized=${initialized}); not reusing it`);
       } else await this.registerOnToken(vault); // key already deleted before the crash: only finish registration
       // never mark the vault done unless the chain itself reports it keyless and initialized for this company
-      const after = await this.accessKeys(vault);
+      const after = await this.keysWhen(vault, (k) => k.length === 0);
       if (after.length) throw new Error(`${vault} still has ${after.length} access key(s); setup stopped`);
       if (!(await this.vaultState(vault).then((x) => x?.owner === company, () => false))) throw new Error(`${vault} is not initialized for ${company}`);
       log.push({ kind: 'account_create', detail: `${vault} (vault contract deployed, all keys deleted)` });
@@ -293,7 +300,7 @@ export class NearService {
         keys = await this.accessKeys(agent);
       }
       if (keys.some((k) => k.publicKey === fullPub)) await this.account(agent, this.decrypt(s.agentFullEnc)).deleteKey(fullPub);
-      const after = await this.accessKeys(agent);
+      const after = await this.keysWhen(agent, (k) => k.length === 1 && k[0].publicKey === fcPub);
       if (after.length !== 1 || after[0].publicKey !== fcPub || !after[0].permission?.FunctionCall) {
         throw new Error(`${agent} key state is not exactly one pay-only key; setup stopped`);
       }
