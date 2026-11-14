@@ -25,6 +25,26 @@ SkyPay lets a small agency run its money in one place: bill clients, take a supp
 
 Captured while testing on NEAR testnet. Amounts are `tUSDC`, a test token with no value.
 
+### Finance workspace, page by page
+
+Each tab of the Finance workspace, captured on NEAR testnet with a funded test company.
+
+| Page | What it shows |
+|---|---|
+| **Invoices** | Create invoices and download CSVs. INV-0003 is paid, INV-0002 pending, INV-0001 paid with a transaction link. |
+| **Vault** | The three steps: get test tUSDC, move funds into the vault, set per-payment and daily limits. |
+| **Employees** | Team list with monthly pay and approval status, plus add-employee form. |
+| **Suppliers** | Registered suppliers, approval on the vault, and the add-supplier form. |
+| **Supplier bills** | Private inbox link for contractors. A bill that pays a different account is flagged, and a rejected bill is shown. |
+| **Supplier payouts** | Single, batch and Excel payouts. Settled payments link to their transactions. Refused payments show the contract's reason, such as "exceeds per-payment limit", "exceeds daily limit" or "agent revoked". |
+
+![Invoices page](docs/screenshots/finance-invoices.png)
+![Vault page](docs/screenshots/finance-vault.png)
+![Employees page](docs/screenshots/finance-employees.png)
+![Suppliers page](docs/screenshots/finance-suppliers.png)
+![Supplier bills page](docs/screenshots/finance-supplier-bills.png)
+![Supplier payouts page](docs/screenshots/finance-supplier-payouts.png)
+
 ---
 
 ## 1. What it does
