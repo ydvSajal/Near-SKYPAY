@@ -28,6 +28,9 @@ export function BillsPanel({ tokenShort, onChange }: { tokenShort: string; onCha
   const [busy, setBusy] = useState<string | null>(null)
   const [msg, setMsg] = useState<{ ok: boolean; text: string; url?: string | null } | null>(null)
   const [ack, setAck] = useState<Record<string, boolean>>({})
+  const [confirmRotate, setConfirmRotate] = useState(false)
+  const [rejecting, setRejecting] = useState<string | null>(null)
+  const [note, setNote] = useState("")
 
   const load = useCallback(async () => {
     const r = await authService.api<{ bills: Bill[] }>("/api/bills")
@@ -58,14 +61,15 @@ export function BillsPanel({ tokenShort, onChange }: { tokenShort: string; onCha
         <div className="flex flex-col gap-2 sm:flex-row">
           <input readOnly value={link} aria-label="Bill inbox link" className="h-10 min-w-0 flex-1 rounded-lg border border-input bg-card px-3 font-mono text-xs" />
           <button type="button" className={`${btn} border border-border bg-card`} disabled={!link} onClick={() => { navigator.clipboard?.writeText(link); setMsg({ ok: true, text: "Inbox link copied" }) }}><Copy className="h-4 w-4" /> Copy</button>
-          <button type="button" className={`${btn} border border-border bg-card`} disabled={!!busy} onClick={() => {
-            if (!confirm("Create a new inbox link? The old link stops accepting bills. Status links already sent keep working.")) return
+          <button type="button" className={`${btn} border border-border bg-card`} disabled={!!busy} title="The old link stops accepting bills. Status links already sent keep working." onClick={() => {
+            if (!confirmRotate) { setConfirmRotate(true); return }
+            setConfirmRotate(false)
             act("rotate", "New link", async () => {
               const r = await authService.api<{ path: string }>("/api/bills/inbox-link/rotate", { method: "POST" })
               setLink(`${window.location.origin}${r.path}`)
               return { text: "New inbox link created; the old one no longer works." }
             })
-          }}><RefreshCw className="h-4 w-4" /> New link</button>
+          }}><RefreshCw className="h-4 w-4" /> {confirmRotate ? "Click again: old link stops working" : "New link"}</button>
         </div>
       </div>
 
@@ -122,11 +126,17 @@ export function BillsPanel({ tokenShort, onChange }: { tokenShort: string; onCha
                       const r = await authService.api<{ bill: Bill; txUrl: string | null; alreadyDispatched: boolean }>(`/api/bills/${b.id}/pay`, { method: "POST", body: JSON.stringify({ acknowledgeFlags: !!ack[b.id] }) })
                       return { text: r.alreadyDispatched ? `${b.invoiceNumber} was already sent (${r.bill.status}); not sent again.` : `${b.invoiceNumber}: ${r.bill.status}`, url: r.txUrl }
                     })}>{busy === b.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Pay from vault</button>
-                    <button type="button" className={`${btn} border border-border`} disabled={!!busy} onClick={() => {
-                      const note = prompt("Reason (shown to the contractor):") ?? null
-                      if (note === null) return
-                      act(b.id, "Reject", async () => { await authService.api(`/api/bills/${b.id}/reject`, { method: "POST", body: JSON.stringify({ note }) }); return { text: `${b.invoiceNumber} rejected` } })
-                    }}>Reject</button>
+                    {rejecting === b.id ? (
+                      <>
+                        <input aria-label={`Reason for rejecting ${b.invoiceNumber}`} autoFocus value={note} onChange={(e) => setNote(e.target.value)} placeholder="Reason (shown to the contractor)" className="h-9 min-w-0 flex-1 rounded-lg border border-input bg-card px-3 text-sm" />
+                        <button type="button" className={`${btn} border border-destructive/40 text-destructive`} disabled={!!busy} onClick={() => {
+                          act(b.id, "Reject", async () => { await authService.api(`/api/bills/${b.id}/reject`, { method: "POST", body: JSON.stringify({ note }) }); setRejecting(null); setNote(""); return { text: `${b.invoiceNumber} rejected` } })
+                        }}>Confirm reject</button>
+                        <button type="button" className={`${btn} border border-border`} onClick={() => { setRejecting(null); setNote("") }}>Cancel</button>
+                      </>
+                    ) : (
+                      <button type="button" className={`${btn} border border-border`} disabled={!!busy} onClick={() => setRejecting(b.id)}>Reject</button>
+                    )}
                   </div>
                 )}
               </li>

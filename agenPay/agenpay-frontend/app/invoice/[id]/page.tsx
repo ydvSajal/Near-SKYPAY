@@ -333,7 +333,7 @@ export default function InvoicePage() {
             <div className="text-right">
               <p className="text-xs text-slate-500">Total due</p>
               <p className="text-2xl font-semibold tabular-nums">
-                {inv.amountFormatted} <span className="text-base font-medium text-slate-500">{inv.asset}</span>
+                {inv.amountFormatted} <span className="text-base font-medium text-slate-500">{inv.isTestToken ? "tUSDC (test token, no value)" : inv.asset}</span>
               </p>
             </div>
           </div>
