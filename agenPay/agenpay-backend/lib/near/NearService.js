@@ -15,6 +15,9 @@ const NET = {
 };
 
 const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64');
+// The public testnet RPC throttles bursts. Report that as a retryable 503 the UI can show, not a bare 500.
+export const rpcBusy = () => Object.assign(new Error('NEAR network is busy (rate limited). Wait a few seconds and try again.'), { status: 503 });
+export const isRpcBusy = (e) => /\b429\b|too many requests|rate.?limit|ECONNRESET|ETIMEDOUT|fetch failed|Unexpected token|not valid JSON/i.test(String(e?.message || e));
 
 export class NearService {
   constructor(env = process.env) {
@@ -52,9 +55,12 @@ export class NearService {
         body: JSON.stringify({ jsonrpc: '2.0', id: 'skypay', method, params }),
         signal: AbortSignal.timeout(15_000),
       });
-      const j = await r.json();
-      const limited = r.status === 429 || j.error?.code === -429;
-      if (limited && attempt < 4) { await new Promise((x) => setTimeout(x, 1000 * (attempt + 1))); continue; }
+      // A rate-limited or overloaded RPC often answers with a non-JSON page; treat that like a 429, not a crash.
+      const j = await r.json().catch(() => null);
+      // A 5xx that still carries a JSON-RPC error is a real answer (handled below), not throttling.
+      const busy = r.status === 429 || !j || j.error?.code === -429 || (r.status >= 500 && !j.error);
+      if (busy && attempt < 4) { await new Promise((x) => setTimeout(x, 1000 * (attempt + 1))); continue; }
+      if (busy) throw rpcBusy();
       if (!r.ok && !j.error) throw new Error(`RPC HTTP ${r.status}`);
       if (j.error) throw Object.assign(new Error(j.error.data || j.error.message || 'rpc error'), { rpcError: j.error });
       return j.result;
@@ -209,7 +215,7 @@ export class NearService {
     } catch (e) {
       const why = JSON.stringify(e.rpcError || {}) + String(e.message);
       if (/UNKNOWN_ACCOUNT|does not exist/i.test(why)) return [];
-      throw new Error(`could not read access keys of ${id}: ${e.message}`);
+      throw Object.assign(new Error(`could not read access keys of ${id}: ${e.message}`), { status: e.status }); // keeps a 503 "busy" visible
     }
     if (!Array.isArray(r?.keys)) throw new Error(`malformed access key list for ${id}`);
     return r.keys.map((k) => ({ publicKey: k.public_key, permission: k.access_key.permission }));
@@ -373,7 +379,7 @@ export class NearService {
 
     const res = await this.relayer().signAndSendTransaction({
       receiverId: d.senderId, actions: [actions.signedDelegate(signed)], waitUntil: 'EXECUTED_OPTIMISTIC', throwOnFailure: false,
-    });
+    }).catch((e) => { throw isRpcBusy(e) ? rpcBusy() : e; });
     return { txHash: res.transaction.hash, status: res.status };
   }
 

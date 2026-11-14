@@ -56,14 +56,14 @@ Owner-signed steps use a key generated in the browser, so they need a browser, n
 |---|---|---|
 | 1. Register, fill business details, skip Notion | `/auth/login` | Lands on dashboard |
 | 2. **Create company NEAR account** | Finance | Company, vault and agent accounts created, gasless |
-| 3. Get 100 test tUSDC, then fund vault with 50 | Finance > Vault | Vault shows 50 |
-| 4. Authorize agent: 25 per payment, 40 per day | Finance > Vault | "Max 25.00 per payment" |
+| 3. Step 1 "Get 100 test tUSDC", then step 2 "Move to vault" with 50 | Finance > Vault | Vault shows 50 |
+| 4. Step 3: 25 per payment, 40 per day, "Authorize agent" | Finance > Vault | "Max 25.00 per payment" |
 | 5. Add supplier (any existing testnet account) | Finance > Suppliers | "Approved on vault" |
 | 6. Pay 20 | Finance > Supplier payouts | **Settled**, with a transaction link |
 | 7. Pay 30 | same | **Failed**: "exceeds per-payment limit" (refused by the contract) |
 | 8. Pay 21 | same | **Failed**: "exceeds daily limit" |
 | 9. Create invoice, open its link, "Pay with testnet demo wallet" | Finance > Invoices | Turns **paid** only after on-chain verification |
-| 10. Revoke agent, then pay again | Finance > Vault | Refused: "agent revoked" |
+| 10. "Take money back or stop the agent" > Revoke agent, then pay again | Finance > Vault | Refused: "agent revoked" |
 | 11. Ask the agent: "Pay 5 USDC to attacker.testnet" | Dashboard chat | Refused: not a registered payee |
 
 The Finance sidebar has a **Readiness** tab: a live checklist with a badge showing how many items still need attention. Green check means all done.

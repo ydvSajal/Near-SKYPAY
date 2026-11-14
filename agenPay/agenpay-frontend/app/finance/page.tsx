@@ -60,7 +60,8 @@ function Tx({ url }: { url: string | null }) {
   ) : null
 }
 
-function Section({ id, icon: I, title, sub, children }: { id?: string; icon: typeof Vault; title: string; sub?: string; children: React.ReactNode }) {
+// `how` is the "what do I do here" list shown at the top of a tab, for someone seeing the page for the first time.
+function Section({ id, icon: I, title, sub, how, children }: { id?: string; icon: typeof Vault; title: string; sub?: string; how?: string[]; children: React.ReactNode }) {
   return (
     <section id={id} className="scroll-mt-24 rounded-xl border border-border bg-card">
       <div className="flex gap-3 border-b border-border px-5 py-3">
@@ -70,8 +71,30 @@ function Section({ id, icon: I, title, sub, children }: { id?: string; icon: typ
           {sub && <p className="text-[15px] text-muted-foreground">{sub}</p>}
         </div>
       </div>
-      <div className="grid gap-4 p-5">{children}</div>
+      <div className="grid gap-4 p-5">
+        {how && (
+          <div className="rounded-lg bg-muted px-4 py-3">
+            <p className="text-sm font-bold">How to use this page</p>
+            <ol className="mt-1 list-decimal space-y-0.5 pl-5 text-sm text-muted-foreground">{how.map((h) => <li key={h}>{h}</li>)}</ol>
+          </div>
+        )}
+        {children}
+      </div>
     </section>
+  )
+}
+
+// One numbered step of a guided flow; the number turns into a check once the chain confirms it.
+function Step({ n, title, done, children }: { n: number; title: string; done: boolean; children: React.ReactNode }) {
+  return (
+    <li className="flex gap-3 rounded-lg border border-border p-4">
+      {done ? <CheckCircle2 aria-label="Done" className="mt-0.5 h-6 w-6 shrink-0 text-success" />
+        : <span aria-hidden className="tabular flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">{n}</span>}
+      <div className="grid min-w-0 flex-1 gap-3">
+        <h3 className="text-base font-bold">Step {n}: {title}</h3>
+        {children}
+      </div>
+    </li>
   )
 }
 
@@ -148,14 +171,15 @@ export default function FinancePage() {
 
   useEffect(() => { reload() }, [reload])
 
-  // Live updates every 2 s; a failed poll keeps the last good data.
+  // Live updates every 6 s; a failed poll keeps the last good data.
+  // ponytail: each poll is ~6 NEAR RPC reads; 2 s polling tripped the public testnet RPC rate limit. Cache /status server-side if more tabs need it.
   useEffect(() => {
     let inFlight = false
     const t = setInterval(async () => {
       if (inFlight || document.hidden) return
       inFlight = true
       try { await load() } catch {} finally { inFlight = false }
-    }, 2000)
+    }, 6000)
     return () => clearInterval(t)
   }, [load])
 
@@ -425,79 +449,106 @@ export default function FinancePage() {
               {tab === "readiness" && <ReadinessPanel {...rdy} />}
 
               {/* Vault controls */}
-              {tab === "vault" && <Section id="vault" icon={Vault} title="Operating vault" sub="The agent's spending budget. Fund it, set limits, withdraw any time.">
-                <div className="flex flex-wrap gap-2">
+              {tab === "vault" && (() => {
+                const recv = rdy.companyBalance, inVault = rdy.vaultAvailable
+                const policyOk = !!p && !p.revoked && p.expires_at_ms > Date.now()
+                const fundOver = isAmount(fund) && Number(fund) > recv
+                const limitBad = isAmount(perTx) && isAmount(daily) && Number(perTx) > Number(daily)
+                const o = st.isTestToken ? 1 : 0 // step numbers shift when the test-money step is shown
+                const warn = "text-sm font-medium text-destructive"
+                return <Section id="vault" icon={Vault} title="Operating vault" sub="The agent can only spend money you put in the vault, and only inside the limits you set. Do the steps in order; each one turns green when it is done.">
+                <ol className="grid gap-3">
                   {st.isTestToken && (
-                    <button type="button" className={btnSecondary} disabled={!!busy} onClick={() => run("Test tokens", async () => {
-                      const r = await authService.api<{ url: string }>("/api/near/test-faucet", { method: "POST" })
-                      return { url: r.url, text: "Minted 100 tUSDC (testnet test token, no value) to your receiving account" }
-                    })}>Get 100 test tUSDC</button>
+                    <Step n={1} title="Get test money" done={recv > 0 || inVault > 0}>
+                      <p className="text-sm text-muted-foreground">Adds 100 {tokenShort} to your receiving account. It is a test token with no value. You have <b className="text-foreground">{recv.toFixed(2)} {tokenShort}</b> there now.</p>
+                      <button type="button" className={`${btnSecondary} w-fit`} disabled={!!busy} onClick={() => run("Test tokens", async () => {
+                        const r = await authService.api<{ url: string }>("/api/near/test-faucet", { method: "POST" })
+                        return { url: r.url, text: "Minted 100 tUSDC (testnet test token, no value) to your receiving account" }
+                      })}>{busy === "Test tokens" && <Loader2 className="h-4 w-4 animate-spin" />} Get 100 test {tokenShort}</button>
+                    </Step>
                   )}
-                  <button type="button" className={btnSecondary} disabled={!canSign} onClick={() => setBackedUp(downloadOwnerKeyBackup(user.id, st.company))}>
-                    <Download className="h-4 w-4" /> Owner key backup
-                  </button>
-                </div>
 
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="flex items-start gap-2 [&>button]:mt-[30px]">
-                    <F id="fund" label={`Fund vault (${tokenShort})`} hint="Moves money from your receiving account into the vault." className="flex-1">
-                      <input id="fund" inputMode="decimal" value={fund} onChange={(e) => setFund(e.target.value)} className={`${input} tabular`} />
-                    </F>
-                    <button type="button" disabled={!!busy || !canSign || !isAmount(fund)} className={btnPrimary} onClick={() => run("Fund vault", () =>
-                      owner("Fund vault", st.token, "ft_transfer_call", { receiver_id: st.vault, amount: toBaseUnits(fund), msg: "fund" }, BigInt(1), 100))}>
-                      Fund
-                    </button>
-                  </div>
-                  <div className="flex items-start gap-2 [&>button]:mt-[30px]">
-                    <F id="withdraw" label={`Withdraw (${tokenShort})`} hint="Returns unspent vault money to your receiving account." className="flex-1">
-                      <input id="withdraw" inputMode="decimal" value={withdraw} onChange={(e) => setWithdraw(e.target.value)} className={`${input} tabular`} />
-                    </F>
-                    <button type="button" disabled={!!busy || !canSign || !isAmount(withdraw)} className={btnSecondary} onClick={() => run("Withdraw", () =>
-                      owner("Withdraw", st.vault!, "withdraw", { amount: toBaseUnits(withdraw) }, BigInt(0), 100))}>
-                      Withdraw
-                    </button>
-                  </div>
-                </div>
+                  <Step n={1 + o} title="Move money into the vault" done={inVault > 0}>
+                    <p className="text-sm text-muted-foreground">Choose how much of your receiving account the agent may use. The vault holds <b className="text-foreground">{inVault.toFixed(2)} {tokenShort}</b> now. You can take it back any time.</p>
+                    <div className="flex max-w-md items-start gap-2 [&>button]:mt-[30px]">
+                      <F id="fund" label={`Amount (${tokenShort})`} className="flex-1">
+                        <input id="fund" inputMode="decimal" value={fund} onChange={(e) => setFund(e.target.value)} className={`${input} tabular`} />
+                      </F>
+                      <button type="button" disabled={!!busy || !canSign || !isAmount(fund) || fundOver} className={btnPrimary} onClick={() => run("Fund vault", () =>
+                        owner("Fund vault", st.token, "ft_transfer_call", { receiver_id: st.vault, amount: toBaseUnits(fund), msg: "fund" }, BigInt(1), 100))}>
+                        {busy === "Fund vault" && <Loader2 className="h-4 w-4 animate-spin" />} Move to vault
+                      </button>
+                    </div>
+                    {fundOver && <p className={warn}>Your receiving account only has {recv.toFixed(2)} {tokenShort}.{st.isTestToken ? " Do step 1 first." : ""}</p>}
+                  </Step>
 
-                <div className="rounded-lg bg-muted p-4">
-                  <p className="font-medium">Agent spending policy</p>
-                  <div className="mt-3 grid grid-cols-3 gap-3">
-                    <F id="pertx" label="Per payment"><input id="pertx" inputMode="decimal" value={perTx} onChange={(e) => setPerTx(e.target.value)} className={`${input} tabular`} /></F>
-                    <F id="daily" label="Per day"><input id="daily" inputMode="decimal" value={daily} onChange={(e) => setDaily(e.target.value)} className={`${input} tabular`} /></F>
-                    <F id="days" label="Valid days"><input id="days" inputMode="numeric" value={days} onChange={(e) => setDays(e.target.value)} className={`${input} tabular`} /></F>
-                  </div>
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    <button type="button" disabled={!!busy || !canSign || !isAmount(perTx) || !isAmount(daily) || !(Number(days) > 0)} className={btnPrimary} onClick={() => run("Set agent limits", () =>
+                  <Step n={2 + o} title="Set the agent's limits" done={policyOk}>
+                    <p className="text-sm text-muted-foreground">The agent cannot pay anyone until you set these. The vault contract refuses any payment over a limit.</p>
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      <F id="pertx" label={`Per payment (${tokenShort})`} hint="Largest single payment."><input id="pertx" inputMode="decimal" value={perTx} onChange={(e) => setPerTx(e.target.value)} className={`${input} tabular`} /></F>
+                      <F id="daily" label={`Per day (${tokenShort})`} hint="Most it can send in one day."><input id="daily" inputMode="decimal" value={daily} onChange={(e) => setDaily(e.target.value)} className={`${input} tabular`} /></F>
+                      <F id="days" label="Valid for (days)" hint="After this it must be renewed."><input id="days" inputMode="numeric" value={days} onChange={(e) => setDays(e.target.value)} className={`${input} tabular`} /></F>
+                    </div>
+                    {limitBad && <p className={warn}>Per payment cannot be more than per day.</p>}
+                    <button type="button" disabled={!!busy || !canSign || !isAmount(perTx) || !isAmount(daily) || limitBad || !(Number(days) > 0)} className={`${btnPrimary} w-fit`} onClick={() => run("Set agent limits", () =>
                       owner("Set agent limits", st.vault!, "set_agent", {
                         agent: st.agent, per_tx_limit: toBaseUnits(perTx), daily_limit: toBaseUnits(daily),
                         expires_at_ms: Date.now() + Number(days) * 86_400_000,
                       }))}>
-                      {p ? "Update limits" : "Authorize agent"}
+                      {busy === "Set agent limits" && <Loader2 className="h-4 w-4 animate-spin" />} {!p ? "Authorize agent" : policyOk ? "Update limits" : "Re-authorize agent"}
                     </button>
-                    {p && !p.revoked && (
-                      <button type="button" disabled={!!busy || !canSign} className={`${btnSecondary} border-destructive/40 text-destructive hover:bg-destructive/5`}
-                        onClick={() => run("Revoke agent", () => owner("Revoke agent", st.vault!, "revoke_agent", { agent: st.agent }))}>
-                        <Trash2 className="h-4 w-4" /> Revoke agent
+                    <p className={policyOk ? "text-sm text-muted-foreground" : warn}>
+                      {!p ? "Not set yet: the agent cannot pay."
+                        : p.revoked ? "Agent is revoked: every payment is refused. Set limits again to turn it back on."
+                          : !policyOk ? "Limits expired: the agent cannot pay until you set them again."
+                            : `Active now: up to ${u(p.per_tx_limit)} per payment, ${u(p.daily_limit)} per day, until ${new Date(p.expires_at_ms).toLocaleDateString()}.`}
+                    </p>
+                  </Step>
+
+                  <Step n={3 + o} title="Save your owner key backup" done={backedUp}>
+                    <p className="text-sm text-muted-foreground">Your owner key lives only in this browser. Download the backup file and keep it safe: without it, a lost or cleared browser means you can no longer control the vault.</p>
+                    <button type="button" className={`${btnSecondary} w-fit`} disabled={!canSign} onClick={() => setBackedUp(downloadOwnerKeyBackup(user.id, st.company))}>
+                      <Download className="h-4 w-4" /> Download key backup
+                    </button>
+                  </Step>
+                </ol>
+                {!canSign && <p className={warn}>The buttons are off because your owner key is not in this browser. Import your key backup in the box above first.</p>}
+
+                <details className="rounded-lg border border-border">
+                  <summary className="cursor-pointer px-4 py-3 font-semibold">Take money back or stop the agent</summary>
+                  <div className="grid gap-4 border-t border-border p-4">
+                    <div className="flex max-w-md items-start gap-2 [&>button]:mt-[30px]">
+                      <F id="withdraw" label={`Withdraw from vault (${tokenShort})`} hint="Returns unspent vault money to your receiving account." className="flex-1">
+                        <input id="withdraw" inputMode="decimal" value={withdraw} onChange={(e) => setWithdraw(e.target.value)} className={`${input} tabular`} />
+                      </F>
+                      <button type="button" disabled={!!busy || !canSign || !isAmount(withdraw) || Number(withdraw) > inVault} className={btnSecondary} onClick={() => run("Withdraw", () =>
+                        owner("Withdraw", st.vault!, "withdraw", { amount: toBaseUnits(withdraw) }, BigInt(0), 100))}>
+                        Withdraw
                       </button>
+                    </div>
+                    {policyOk && (
+                      <div className="grid gap-2">
+                        <p className="text-sm text-muted-foreground">Revoking stops every agent payment at once. Money stays in the vault. Set limits again (step {2 + o}) to turn the agent back on.</p>
+                        <button type="button" disabled={!!busy || !canSign} className={`${btnSecondary} w-fit border-destructive/40 text-destructive hover:bg-destructive/5`}
+                          onClick={() => run("Revoke agent", () => owner("Revoke agent", st.vault!, "revoke_agent", { agent: st.agent }))}>
+                          <Trash2 className="h-4 w-4" /> Revoke agent
+                        </button>
+                      </div>
                     )}
                   </div>
-                  {p && (
-                    <p className="mt-3 text-sm text-muted-foreground">
-                      {p.revoked ? "Agent revoked: every payment is refused on chain." : `Policy expires ${new Date(p.expires_at_ms).toLocaleDateString()}.`}
-                    </p>
-                  )}
-                </div>
-              </Section>}
+                </details>
+              </Section>
+              })()}
 
               {/* Employees */}
-              {tab === "employees" && <Section id="employees" icon={Briefcase} title="Employees" sub="Your team. Set monthly pay once, then run payroll.">
+              {tab === "employees" && <Section id="employees" icon={Briefcase} title="Employees" sub="Your team. Set monthly pay once, then run payroll." how={["Add each person with their NEAR account and monthly pay.", "Approve them on the vault (one click per person).", "Run payroll: the vault pays everyone inside the agent's limits."]}>
                 {st.vault && user ? (
                   <EmployeesPanel employees={employees} userId={user.id} company={st.company!} vault={st.vault} vaultAvailable={st.vaultAvailable} hasKey={canSign} reload={load} />
                 ) : <p className="rounded-lg bg-muted p-4 text-sm text-muted-foreground">Set up the company NEAR account first.</p>}
               </Section>}
 
               {/* Payees */}
-              {tab === "payees" && <Section id="payees" icon={Users} title="Suppliers" sub="Outside vendors the vault may pay. Only you can add them.">
+              {tab === "payees" && <Section id="payees" icon={Users} title="Suppliers" sub="Outside vendors the vault may pay. Only you can add them." how={["Fill in name, billing email and NEAR account at the bottom, then click Add.", "Add also approves them on the vault. Only approved suppliers can be paid.", "Then pay them from Supplier payouts."]}>
                 {suppliers.length ? (
                   <ul className="divide-y divide-border rounded-lg border border-border">
                     {suppliers.map((x) => (
@@ -552,12 +603,12 @@ export default function FinancePage() {
               </Section>}
 
             {/* Supplier bill inbox */}
-            {tab === "bills" && <Section id="bills" icon={Inbox} title="Supplier bills" sub="Bills your contractors sent. Review, then pay.">
+            {tab === "bills" && <Section id="bills" icon={Inbox} title="Supplier bills" sub="Bills your contractors sent. Review, then pay." how={["Share your private inbox link with contractors.", "Their bills appear here. Unknown senders, changed details and duplicates are flagged.", "Review each bill, then pay or reject it."]}>
               <BillsPanel tokenShort={tokenShort} onChange={() => { load().catch(() => {}) }} />
             </Section>}
 
             {/* Supplier payments */}
-            {tab === "pay" && <Section id="pay" icon={Send} title="Supplier payouts" sub="Pay approved payees from the vault.">
+            {tab === "pay" && <Section id="pay" icon={Send} title="Supplier payouts" sub="Pay approved payees from the vault." how={["Before paying: the vault has money and the agent has limits (Vault tab), and the payee is approved (Suppliers tab).", "Pick Single, Batch or Import Excel, fill it in, and click Pay.", "Payments over a limit are refused by the vault and shown in red below."]}>
               <div role="tablist" aria-label="Payout type" className="inline-flex w-fit rounded-lg border border-border bg-muted p-1">
                 {(["single", "batch", "import"] as const).map((m) => (
                   <button key={m} type="button" role="tab" aria-selected={payMode === m} onClick={() => setPayMode(m)}
@@ -671,7 +722,7 @@ export default function FinancePage() {
             </Section>}
 
             {/* Invoices */}
-            {tab === "invoices" && <Section id="invoices" icon={FileText} title="Invoices" sub="Create an invoice; the client gets a pay link by email.">
+            {tab === "invoices" && <Section id="invoices" icon={FileText} title="Invoices" sub="Create an invoice; the client gets a pay link by email." how={["Enter the client email, add line items, and click Create and email invoice.", "The client opens the link and pays.", "The invoice turns paid only after the payment is checked on NEAR. The money lands in your receiving account."]}>
               <div className="grid gap-x-3 gap-y-2 sm:grid-cols-2 lg:grid-cols-4">
                 <F id="inv-email" label="Client email"><input id="inv-email" type="email" value={inv.email} onChange={(e) => setInv({ ...inv, email: e.target.value })} className={input} /></F>
                 <F id="inv-name" label="Client name"><input id="inv-name" value={inv.name} onChange={(e) => setInv({ ...inv, name: e.target.value })} className={input} /></F>

@@ -26,7 +26,7 @@ export function rows(r: Readiness): Row[] {
       : { label: "Owner key in this browser", state: "todo", detail: "Import your key backup below to fund the vault, set limits or approve suppliers." })
   out.push(r.backupSaved
     ? { label: "Key backup", state: "ok", detail: "Downloaded from this browser. Keep it offline or in a password manager." }
-    : { label: "Key backup", state: r.keyState === "ok" ? "problem" : "todo", detail: "Not downloaded from this browser yet. Without it, losing this browser means losing control of the company account. Vault tab: Owner key backup." })
+    : { label: "Key backup", state: r.keyState === "ok" ? "problem" : "todo", detail: "Not downloaded from this browser yet. Without it, losing this browser means losing control of the company account. Vault tab: Download key backup." })
   out.push(r.companyBalance > 0
     ? { label: "Receiving account (collected funds)", state: "ok", detail: `${r.companyBalance.toFixed(2)} ${r.tokenShort} in your receiving account (where client payments land). The agent cannot spend it until you move some into the vault.` }
     : { label: "Receiving account (collected funds)", state: "todo", detail: r.isTestToken ? "Empty. Get paid on an invoice, or mint test tokens (Vault tab)." : "Empty. Client invoice payments land here." })
@@ -37,9 +37,9 @@ export function rows(r: Readiness): Row[] {
   out.push(!p
     ? { label: "Agent spending policy", state: "todo", detail: "Not authorized yet. Set per-payment and daily limits (Vault tab)." }
     : p.revoked
-      ? { label: "Agent spending policy", state: "problem", detail: "Revoked: every agent payment is refused on chain." }
+      ? { label: "Agent spending policy", state: "problem", detail: "Revoked: every agent payment is refused on chain. Set limits again in the Vault tab to turn it back on." }
       : p.expires_at_ms < Date.now()
-        ? { label: "Agent spending policy", state: "problem", detail: "Expired. Renew it with Update limits (Vault tab)." }
+        ? { label: "Agent spending policy", state: "problem", detail: "Expired. Renew it in the Vault tab, step: Set the agent's limits." }
         : { label: "Agent spending policy", state: "ok", detail: `Active until ${new Date(p.expires_at_ms).toLocaleDateString()}.` })
   if (r.agentKey) {
     out.push(!r.agentKey.present
