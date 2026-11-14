@@ -1,6 +1,6 @@
 # HTTP API reference
 
-[Documentation index](README.md) | [Architecture](ARCHITECTURE.md) | [Operations](OPERATIONS.md)
+[Documentation index](../README.md) | [Architecture](../README.md#architecture) | [Operations](OPERATIONS.md)
 
 This is a reference for the current Express routes, not a versioned external SDK contract. Local origin: `http://localhost:3001`. Send JSON bodies with Content-Type application/json. Private routes require `Authorization: Bearer <JWT>`; the authenticated user's id supplies the company scope. Do not accept a model-supplied userId as authority.
 

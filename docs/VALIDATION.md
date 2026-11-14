@@ -37,8 +37,8 @@ New fixes: deterministic company/payroll-name primary keys reject racing run cre
 
 | Recheck command | Actual result |
 |---|---|
-| Backend `node --test --test-isolation=none test/*.test.js` | **42 pass, 0 fail**; [output](../evidence/recheck-backend-tests.txt). Three added regressions cover payroll races, unknown payroll retries and cost-ledger failure. The expected cost-ledger failure logs to stderr |
-| Frontend `node --test --test-isolation=none lib/payroll-core.test.ts` | **6 pass, 0 fail**; [output](../evidence/recheck-payroll-tests.txt). Node emits a module-type warning |
+| Backend `node --test --test-isolation=none test/*.test.js` | **42 pass, 0 fail**; [output](../docsarchive/evidence/recheck-backend-tests.txt). Three added regressions cover payroll races, unknown payroll retries and cost-ledger failure. The expected cost-ledger failure logs to stderr |
+| Frontend `node --test --test-isolation=none lib/payroll-core.test.ts` | **6 pass, 0 fail**; [output](../docsarchive/evidence/recheck-payroll-tests.txt). Node emits a module-type warning |
 | Frontend `node node_modules/typescript/bin/tsc --noEmit` | Exit 0, no diagnostics |
 | Frontend `npm run lint` (ESLint CLI) | Exit 0, no warnings/errors. Initial direct-CLI run included generated files; config now excludes .next, next-env.d.ts and output folders |
 | Backend `node node_modules/prisma/build/index.js validate` | Schema valid; DATABASE_URL overridden with a disposable localhost placeholder, no DB connection/write performed |
@@ -50,7 +50,7 @@ Runtime Node is v26.3.1; listed Node 22.8+/24 setup was not separately tested. C
 
 ## Documentation revision after the recheck
 
-The README was reorganized around product scope, evidence levels, offline checks and navigation. New SETUP, API, OPERATIONS and documentation/evidence indexes separate installation, integration, failure recovery and provenance. DEMO and CLAIMS were reconciled with current source. The old application-directory Sei README and root demo page now point to current guides; historical details remain in docs/legacy and Git history. The frontend environment example now lists the actual NEAR API/RPC settings instead of obsolete EVM WalletConnect guidance.
+The README was reorganized around product scope, evidence levels, offline checks and navigation. New SETUP, API, OPERATIONS and documentation/evidence indexes separate installation, integration, failure recovery and provenance. DEMO and CLAIMS were reconciled with current source. The old application-directory Sei README and root demo page now point to current guides; historical details remain in docsarchive/legacy and Git history. The frontend environment example now lists the actual NEAR API/RPC settings instead of obsolete EVM WalletConnect guidance.
 
 Documentation validation: 15 current Markdown entry/guidance files checked for local links, with no missing targets; fenced blocks in the six main rewritten guides are balanced; referenced command/source paths exist; git diff --check passes. Commands and route descriptions were compared with current server/routes/scripts. No application behavior, payment execution, deployment or fresh live evidence was added in this documentation-only revision. Test counts above remain results of the preceding engineering recheck; no unnecessary payment scripts or test reruns were performed.
 
@@ -63,10 +63,10 @@ Documentation validation: 15 current Markdown entry/guidance files checked for l
 | git status --short, git branch --show-current, git log / nested Git root | main, HEAD 0f34799; dirty before editing; migration tag baseline-pre-near = 9037671 |
 | npm test / backend, before edits | Failed before test execution: Node test subprocess spawn EPERM, six file-runner failures |
 | node --test --test-isolation=none test/*.test.js / backend, before edits | 26 pass, no failures; includes concurrent user test changes |
-| same command / backend, after changes | **38 pass, 0 fail, 0 skipped**; [captured output](../evidence/review-backend-tests.txt) |
+| same command / backend, after changes | **38 pass, 0 fail, 0 skipped**; [captured output](../docsarchive/evidence/review-backend-tests.txt) |
 | npm run build / frontend, before edits | Failed during optimized build: spawn EPERM. No successful production build claimed |
 | node node_modules/typescript/bin/tsc --noEmit / frontend | Exit 0, no diagnostics; rerun after concurrent edits |
-| node --test --test-isolation=none lib/payroll-core.test.ts / frontend | **5 pass, 0 fail**; [captured output](../evidence/review-payroll-tests.txt). Harmless Node module-type warning on stderr |
+| node --test --test-isolation=none lib/payroll-core.test.ts / frontend | **5 pass, 0 fail**; [captured output](../docsarchive/evidence/review-payroll-tests.txt). Harmless Node module-type warning on stderr |
 | cargo test -p skypay-vault --lib / contracts | Not executed: cargo command unavailable. Sandbox and wasm rebuild not run |
 | node --check / backend server.js, skypay.js, reconciliation.js, outbox.js, relayGuard.js, NearService.js | Exit 0 |
 | git diff --check / root | Exit 0; CRLF conversion notices only |

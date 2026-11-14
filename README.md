@@ -1,147 +1,293 @@
 # SkyPay
 
-### A finance workspace for agencies, with spending rules enforced on NEAR
+### A finance workspace for agencies, with spending limits enforced by a NEAR smart contract
 
-SkyPay brings client invoices, supplier payments, payroll and financial records into one workspace. An owner can ask an agent to request payment, share an emailed checkout link, verify settlement, and keep receipts, Notion views and CSV exports aligned with the ledger. The agent can pay registered suppliers from a separately funded operating vault, within rules enforced by a native NEAR contract.
+SkyPay lets a small agency run its money in one place: bill clients, take a supplier's invoice, pay approved suppliers and staff, and keep the books in step. An AI agent can do the routine work through typed tools, but it cannot move money outside rules that a Rust contract on NEAR enforces. The agent's key can only call `pay` on the company's vault, and the vault refuses anything that is not allow-listed, over the per-payment or daily limit, expired, or replayed.
 
-**Current release: NEAR testnet, using an open-mint test token called tUSDC. It has no monetary value.** NEAR Intents is integrated for **dry price quotes only**. Executable cross-chain collection and real USDC settlement are not implemented. A mainnet quote is not a mainnet payment.
+**Status: NEAR testnet only.** Payments use `tUSDC`, an open-mint test token with **no monetary value**. Cross-chain checkout (NEAR Intents) is **quote-only**: it previews prices and never takes a deposit. Nothing here moves real money.
 
-**Hackathon:** Real-World Money, November 2026 | **License:** [MIT](LICENSE)
+**Hackathon:** NEAR Real-World Money track, November 2026. **License:** [MIT](LICENSE).
 
-[Try the app](https://near-skypay.vercel.app) | [Set up locally](docs/SETUP.md) | [Judge walkthrough](docs/DEMO.md) | [Validation evidence](docs/VALIDATION.md)
+| | |
+|---|---|
+| Live app | <https://near-skypay.vercel.app> |
+| API health | <https://skypay-near-api.onrender.com/health> (returns `database: connected` when Postgres answers) |
+| Judge walkthrough | [docs/DEMO.md](docs/DEMO.md) |
+| Security model | [SECURITY.md](SECURITY.md) |
+| What is and is not claimed | [CLAIMS.md](CLAIMS.md) |
 
-## The product journey
+---
 
-A small agency needs to collect a client invoice and pay a contractor without giving an AI model control of its treasury.
+## 1. What it does
 
-1. **Set up the company.** SkyPay provisions a company receiving account, an operating vault and a restricted agent account on NEAR testnet. The owner's key is generated in the browser.
-2. **Request payment.** Create an invoice with line items and a due date, or ask the agent: `Request 10 USD from client@example.com for a design sprint.` The ledger stores integer token amounts and schedules checkout email and Notion jobs.
-3. **Collect and verify.** The client opens the invoice link and pays test tUSDC on NEAR. SkyPay checks finalized token receipts, the receiving account, amount and invoice memo before marking it paid.
-4. **Update the books.** Settlement and receipt/Notion jobs commit together. CSV exports come from the database; editing a Notion page does not authorize spending or change settlement.
-5. **Allocate operating funds.** The owner explicitly funds the vault. Customer collections do not automatically become agent spending money.
-6. **Pay within policy.** The owner approves supplier accounts and sets agent limits. The native contract rejects unauthorized recipients, excessive spend, expired authority and changed-payload replays.
-7. **Receive supplier bills.** The owner shares a private inbox link. A contractor submits a bill (no login); SkyPay matches it to a registered supplier by email, flags unknown senders, changed payout details and possible duplicates, and the owner pays it through the vault. The payout account always comes from the owner's supplier registry, never from the bill. The contractor gets a private status page with the NEAR transaction link.
+| Job | How |
+|---|---|
+| **Set up a company on NEAR** | The owner's browser generates a key pair. SkyPay creates the company account, a vault contract, and a restricted agent account. The owner's private key never leaves the browser, and the owner buys no NEAR (the sponsor pays). |
+| **Bill a client** | Create an invoice with line items and a due date, or ask the agent. The client pays `tUSDC` to the company's receiving account with the invoice number as the transfer memo. SkyPay marks the invoice paid only after it checks the finalized NEAR transaction. |
+| **Fund the operating budget** | The owner moves money from the receiving account into the vault with an owner-signed `ft_transfer_call`. Collected money is never spendable by the agent until the owner allocates it. |
+| **Set agent limits** | Per-payment limit, per-day limit, expiry, and a supplier allow-list, all stored on the vault. The owner signs these changes. |
+| **Pay suppliers and staff** | Single payments, batch payouts (up to 25 items), and payroll from a spreadsheet. Every payment is recorded before it is sent, and a refusal from the vault is shown as-is. |
+| **Supplier bill inbox** | The owner shares a private link. A contractor submits a bill without logging in. SkyPay matches the sender to a registered supplier, flags unknown senders, changed payout accounts and possible duplicates, and the owner pays each bill once. The payout address always comes from the owner's registry, never from the bill. |
+| **Keep the books** | Invoice and payment CSV exports (integer token amounts, UTC, transaction links, formula-injection protection), plus optional email receipts and a Notion projection. |
 
-Email and Notion need credentials for actual delivery. Without them, the outbox uses labeled fixture behavior. The complete native testnet walkthrough is in [docs/DEMO.md](docs/DEMO.md).
+---
 
-## What is available today
+## 2. Architecture
 
-| Capability | Implementation | Evidence and limit |
-|---|---|---|
-| Invoices and email checkout | Authenticated invoice service, typed agent tool, line items, due date and stable link | Local tests pass; supplied integration transcript reports SMTP acceptance, not inbox delivery |
-| Native collection | Wallet Selector payer checkout and a labeled demo payer; invoice-specific token-event verification | Local verification tests and recorded testnet transactions; test token only |
-| Supplier payments | Separate native operating vault, owner-approved payees and restricted agent key | 24 Rust unit tests + 1 sandbox test rerun on November 14 against a fresh rebuild ([evidence](evidence/contract-rebuild-20261114-review.txt)); recorded testnet runs |
-| Supplier bill inbox | Public submission link, registry matching, duplicate/changed-payout/unknown-sender flags, one vault payment per bill, contractor status page | 11 local tests (incl. an in-flight request racing crash repair: one dispatch); live testnet run on a freshly provisioned company ([evidence](evidence/bills-smoke-testnet.txt)). Owner review is an app-level control, not an on-chain per-bill approval |
-| Onboarding and key recovery | Readiness checklist from live chain reads (owner key, backup, balances, agent policy, agent gas allowance, vault storage reserve, sponsor); explicit backup step; backup import verified against the registered owner key; resumable provisioning | Provisioning resume test crashes after every chain step and checks no account is created twice; wrong-key import refused in a browser check. Not social login, passkeys or custodial recovery |
-| Sponsorship | Browser-signed owner delegate actions; sponsor-funded setup and registration | Guard tests pass; recorded testnet evidence. Requires sponsor funding; external payer fees are separate |
-| Employees and payroll | Staff records, salary defaults, preview, spreadsheet import and batch execution | Six parser tests pass. Payroll names reserve one run; batch recovery remains incomplete |
-| Notion and receipts | Durable jobs project invoices, supplier payments and dashboard data | Supplied transcript reports API acceptance; ambiguous external delivery can require manual reconciliation |
-| Accounting exports | Invoice and payment CSV, integer amounts, UTC, transaction links and formula protection | Local tests pass; fixed merchant-fee field is not measured fee accounting |
-| NEAR Intents | Catalog-derived source assets and exact-output USDC price previews | Dry quotes only; no executable address, deposit lifecycle or destination settlement |
-| x402 | Existing self-hosted testnet payment mapping shares invoice verification | Local tests and recorded testnet evidence; this is SkyPay's mapping, not a claim of an official NEAR x402 standard |
-
-The agent payroll preview/confirmation is a tool and prompt convention. It is **not** a separate signed server approval. The contract's spending policy is the enforceable financial boundary.
-
-## Why NEAR is a core dependency
-
-The operating vault is a Rust contract on native NEAR L1, not Solidity on Aurora. It holds funds explicitly allocated by the owner and checks the caller, recipient allowlist, per-payment limit, daily budget, expiry and payment identity. It reserves funds before its asynchronous token transfer and releases a failed reservation once through a private callback.
-
-A function-call key's allowance is a gas allowance, not a token budget. The vault enforces token spending limits independently of backend checks. Removing NEAR would require replacing custody, policy enforcement, callback accounting and settlement verification.
+### 2.1 Components
 
 ```mermaid
 flowchart LR
-  Owner[Owner browser key] -->|signed delegate| Relay[Restricted sponsor relay]
-  Relay -->|owner policy and funding| Vault[Native NEAR operating vault]
-  Agent[Agent typed tools] --> API[Authenticated API]
-  API -->|restricted agent key| Vault
-  Vault -->|policy-controlled transfer| Supplier[Approved supplier]
-  Client[Client checkout] -->|test tUSDC transfer| Company[Company receiving account]
-  Company -.->|owner-authorized allocation| Vault
-  API -->|finalized receipt verification| NEAR[NEAR RPC]
-  API --> DB[(Postgres ledger)]
-  DB --> Jobs[Durable outbox]
-  Jobs --> Email[Email and Notion]
-  DB --> CSV[CSV exports]
+  subgraph Browser
+    FE[Next.js app<br/>Finance, Dashboard, public checkout,<br/>contractor bill pages]
+    KEY[(Owner key<br/>localStorage)]
+  end
+  subgraph Server[Express API on Render]
+    API[HTTP routes<br/>nearRouter, bills, skypay]
+    AG[Agent<br/>typed tools + LLM]
+    OB[Outbox worker<br/>email, Notion]
+    REC[Reconciliation worker<br/>read-only recovery]
+    DB[(Postgres<br/>ledger)]
+    SEC[(Encrypted agent key)]
+  end
+  subgraph NEAR[NEAR testnet]
+    VAULT[Vault contract<br/>Rust, no access keys]
+    TOKEN[tUSDC token<br/>NEP-141]
+    RCV[Company receiving account]
+    AGT[Agent account<br/>pay-only key]
+    SPON[Sponsor relayer<br/>pays gas only]
+  end
+  FE -- signed delegate --> API
+  KEY -.signs.-> FE
+  API --> SPON -- relayed owner action --> VAULT
+  API -- pay with agent key --> AGT -- vault.pay --> VAULT
+  VAULT -- ft_transfer --> TOKEN
+  API -- verify FINAL receipts --> TOKEN
+  API --> DB
+  OB --> DB
+  REC --> DB
+  AG --> API
+  API --> SEC
 ```
 
-Provisioning deletes the vault's access keys, leaving no upgrade key. The owner can withdraw available funds through the contract; reserved funds cannot be withdrawn. Verify actual deployed access keys before relying on immutability. See [architecture](docs/ARCHITECTURE.md) and [security](SECURITY.md) for authority, custody and failure boundaries.
+| Layer | Code | Responsibility |
+|---|---|---|
+| Frontend | `agenPay/agenpay-frontend` (Next.js 15, App Router) | Onboarding wizard, Finance workspace, dashboard with agent chat, public invoice checkout, contractor bill pages. Signs owner actions in the browser. |
+| API | `agenPay/agenpay-backend/server.js`, `lib/nearRouter.js` | JWT auth, tenant-scoped routes, rate limits, health check. |
+| Business rules | `lib/skypay.js`, `lib/bills.js` | Invoice settlement, payee registry, batch and single payouts, supplier bill matching and payment, reconciliation of unknown outcomes. |
+| NEAR adapter | `lib/near/NearService.js`, `lib/near/relayGuard.js` | RPC reads, resumable provisioning, receipt verification, agent-signed `pay`, sponsored delegate checks. |
+| Agent | `lib/AgentPayAgent.js` | Natural-language requests mapped to typed tools (`create_invoice`, `pay_supplier`, `run_payroll`, `summarize_finances`, and others). The LLM holds no keys and cannot call anything outside those tools; the backend holds the agent's pay-only key, encrypted at rest. |
+| Durable side effects | `lib/outbox.js` | Email receipts and Notion records are queued in the same database transaction as the money record. |
+| Recovery | `lib/reconciliation.js` | Every 30 s: re-reads unresolved vault payments, recomputes stale payout runs, repairs stuck bills. It never sends a payment. |
+| Contracts | `contracts/vault` (policy vault), `contracts/test-ft` (open-mint test token) | Rust, `near-sdk` 5. |
+| Ledger | `prisma/schema.prisma` | Users, Invoice, PaymentAttempt, Payee, PayoutBatch, SupplierBill, OutboxJob, SponsorLedger. |
 
-## Start with offline verification
+### 2.2 Accounts and who can do what
 
-Use the repository root containing `agenPay`, `contracts` and `render.yaml`. In some downloaded workspaces this is inside another folder of the same name.
+Every company gets three NEAR accounts. Each one has only the authority it needs.
 
-Backend, no database or external service required:
+| Account | Holds | Can do | Cannot do |
+|---|---|---|---|
+| **Company receiving account** | Client payments (`tUSDC`) | Receive transfers; the owner moves funds out | Be spent by the agent directly |
+| **Vault** (contract, **no access keys** after setup) | Allocated operating funds | `pay` (agent only, within limits), `withdraw` (owner only, available funds only) | Be upgraded or redeployed (its keys are deleted) |
+| **Agent account** | Gas allowance only | Call `vault.pay` through a function-call key | Transfer tokens, change limits, add payees |
+| **Owner key** (browser) | Company full-access key | Fund, set limits, approve suppliers, withdraw | Leave the browser unless the owner downloads a backup |
+
+The sponsor relayer pays gas for owner actions. It holds no user authority. `relayGuard` accepts only two kinds of owner delegate: the five owner methods on the company's own vault (`set_agent`, `revoke_agent`, `add_payee`, `remove_payee`, `withdraw`, with no attached deposit and validated arguments), or an `ft_transfer_call` from the company's account into its own vault. Everything else is refused before it is relayed.
+
+Token spending is controlled by the **vault**, not by the agent's gas allowance. A function-call allowance only limits gas, so the contract enforces the amount limits itself.
+
+### 2.3 Money flows
+
+**Collecting an invoice**
+
+```mermaid
+sequenceDiagram
+  participant O as Owner (Finance)
+  participant API as SkyPay API
+  participant C as Client wallet
+  participant T as tUSDC token
+  participant N as NEAR RPC
+  O->>API: create invoice (pending, snapshotted receiver)
+  API-->>C: checkout email / link
+  C->>T: ft_transfer(receiver, amount, memo = invoice number)
+  C->>API: confirm(txHash)
+  API->>N: tx status, FINAL, pinned token only
+  N-->>API: NEP-141 events: receiver, amount, memo
+  API->>API: one DB transaction: invoice paid + payment record + receipt and Notion jobs
+```
+
+A transaction can settle only one invoice (`settledTxHash` is unique). A client's claim alone never marks an invoice paid.
+
+**Paying a supplier from the vault**
+
+```mermaid
+sequenceDiagram
+  participant A as Agent or owner Pay button
+  participant API as SkyPay API
+  participant V as Vault contract
+  participant T as tUSDC token
+  A->>API: pay supplier X (registered payee only)
+  API->>API: persist attempt (submitted), payment id = hash(user, key)
+  API->>V: pay(payment_id, recipient, amount, ref, expiry) [agent key]
+  V->>V: check agent, expiry, allow-list, per-payment and daily limit, balance
+  V->>V: reserve funds (and daily budget)
+  V->>T: ft_transfer(recipient, amount, memo = payment_id)
+  T-->>V: callback: settled, or failed (reservation released once)
+  API->>V: reconcile (read-only) if the outcome was unknown
+```
+
+If the response is lost, the attempt stays `unknown`. The reconciliation worker reads the vault's final state and never sends again. A repeated request with the same key returns the existing attempt.
+
+**Supplier bill inbox**
+
+1. The owner shares the bill link. A contractor submits name, email, invoice number, amount and optional payout account.
+2. The bill is matched to a registered supplier by email, or by the account they typed. Flags: `unknown_supplier`, `payout_changed`, `possible_duplicate`.
+3. The owner reviews it and clicks **Pay**. Flagged bills need an explicit acknowledgement; an unknown supplier must be registered first.
+4. The payment goes through the same vault path as any supplier payment. The contractor's status page shows `in review`, `paying`, `paid` (with the transaction link), `failed` or `rejected`.
+
+**Onboarding and recovery**
+
+Setup is resumable. Each step persists its progress, including the encrypted keys generated for accounts not yet created, before the chain action. After an interruption, a retry continues the same accounts. Each step then re-reads the chain: a vault that still holds a key is not treated as finished. The owner's key is checked against the company's registered key before a backup is accepted.
+
+### 2.4 Safety properties (and where they are enforced)
+
+| Property | Enforced by | Test |
+|---|---|---|
+| Payments go only to owner-registered suppliers | Vault allow-list (on chain) and registry lookup (API) | `payouts.test.js`, contract `a09_unlisted_recipient_refused` |
+| Over-limit or expired payments are refused | Vault `pay` | contract `a09`, `a10`, `a13`, sandbox scenario |
+| The same payment cannot be sent twice | Vault replay check by `payment_id` and request hash; unique `PaymentAttempt.paymentId` | `a11_same_id_same_payload_does_not_double_spend`, `bills.test.js` in-flight race |
+| An unknown outcome is never resent | Reconciliation reads the vault; no resend path exists | `recovery.test.js`, `payouts.test.js` |
+| One bill, one payment, under concurrent clicks and crash recovery | Conditional updates on the bill; deterministic payment identity | `bills.test.js` |
+| A changed payout account on a bill cannot redirect money | Payee always comes from the owner registry; the bill's account is only compared | `bills.test.js` |
+| The vault cannot be upgraded after setup | Its full-access keys are deleted; setup verifies this on chain | `provision.test.js` |
+| The vault never runs out of storage mid-payment | Reserve check counts the new record before accepting | contract storage boundary tests |
+| Tenants cannot read each other's data | Every private query is scoped to the JWT user | `money-and-guards.test.js` |
+| Collected funds are not spendable by the agent | Only owner-signed `ft_transfer_call` with `msg: fund` credits the vault | contract `funding_from_wrong_token_or_wrong_sender_is_refunded` |
+
+---
+
+## 3. Run it
+
+There are two ways to check the project. **Option A needs nothing installed beyond Node.js** and covers the tests and builds. **Option B** runs the whole app locally against NEAR testnet.
+
+### 3.1 Option A: offline checks (about 2 minutes)
+
+Requires Node.js 22.8+ or 24.
 
 ```sh
 cd agenPay/agenpay-backend
 npm ci
-node --test --test-isolation=none test/*.test.js
-```
+npm test                      # 58 tests; database, RPC and provider doubles
 
-In another terminal, from the repository root:
-
-```sh
-cd agenPay/agenpay-frontend
+cd ../agenpay-frontend
 npm ci
 npm run lint
-node node_modules/typescript/bin/tsc --noEmit
-node --test --test-isolation=none lib/payroll-core.test.ts
+npx tsc --noEmit
+node --test --test-isolation=none lib/payroll-core.test.ts   # 6 payroll parser tests
+npm run build
 ```
 
-**Latest observed results (November 14, 2026):** 58 backend tests, frontend TypeScript and lint passed. Backend tests use provider/RPC/database doubles; they are not live-payment proof. Runtime was Node v26.3.1; the documented Node 22.8+/24 setup was not separately tested.
+Expected: all backend tests pass (`ℹ fail 0`), lint and TypeScript exit cleanly, and the production build succeeds. Results from the latest run are in [evidence/backend-tests-20261114.txt](evidence/backend-tests-20261114.txt).
 
-Contracts (Linux/WSL, Rust 1.99, cargo-near 0.23): `bash contracts/build-and-test.sh` rebuilds both contracts, runs 24 vault unit tests and the sandbox scenario, and prints artifact hashes. All passed on November 14. The first rebuild (`ee38669f…`) was provisioned live and the company's on-chain code hash matched it. A review follow-up then fixed the storage-reserve check (it must count the new record) and produced `ba41312d…`, now in `near-artifacts/`; that build is verified by unit and sandbox tests but has not been provisioned live yet. Deployed vaults are immutable and keep the code they were created with. See [full validation](docs/VALIDATION.md) and [contract evidence](evidence/contract-rebuild-20261114-review.txt).
+Contracts (Linux or WSL, Rust with the `wasm32-unknown-unknown` target, and `cargo-near`):
 
-## Run the application
+```sh
+bash contracts/build-and-test.sh
+```
 
-Follow [the setup guide](docs/SETUP.md) for complete Bash and PowerShell steps, environment variables and expected results. You need:
+This rebuilds both contracts, runs the 24 unit tests and the sandbox scenario, and prints the artifact hashes. Output: [evidence/contract-rebuild-20261114-review.txt](evidence/contract-rebuild-20261114-review.txt).
 
-- Node.js 22.8+ or 24, npm, and PostgreSQL; Docker is an optional way to run the database.
-- A funded **testnet** sponsor and the test token; `npm run near:bootstrap` prepares these and writes `.env.near`.
-- Optional model credentials for chat, SMTP credentials for email, and Notion OAuth credentials for workspace sync.
+### 3.2 Option B: full local run on NEAR testnet
 
-The local API defaults to port **3001**, and the frontend to **3000**. Start the API from `agenPay/agenpay-backend` with `node server.js`; start the frontend from `agenPay/agenpay-frontend` with `npm run dev`, or build and use `npm start` for a production run. Backend configuration is loaded from `.env.near` and `.env`; frontend public configuration is in `.env.local`.
+You need: Docker (for PostgreSQL), Node.js 22.8+ or 24, and a testnet account funded by the sponsor. `npm run near:bootstrap` creates the sponsor account and writes `.env.near`.
 
-| Published demo endpoint | Purpose |
+```sh
+# 1. database
+docker run -d --name skypay-pg -p 5434:5432 -e POSTGRES_PASSWORD=skypay -e POSTGRES_DB=skypay postgres:16
+
+# 2. backend
+cd agenPay/agenpay-backend
+cp .env.example .env          # set JWT_SECRET; add an LLM key for the chat agent
+npm ci
+npx prisma db push
+npm run near:bootstrap        # testnet sponsor; writes .env.near
+node server.js                # API on http://localhost:3001
+
+# 3. frontend (new terminal)
+cd agenPay/agenpay-frontend
+cp .env.local.example .env.local
+npm ci
+npm run dev                   # app on http://localhost:3000
+```
+
+Then open <http://localhost:3000>, register, and go to **Finance**. Create the company NEAR account, download the owner-key backup, get test tUSDC, and fund the vault. The full step-by-step, with expected results, is in [docs/DEMO.md](docs/DEMO.md). Environment variables are listed in [docs/SETUP.md](docs/SETUP.md).
+
+Without SMTP credentials, email is logged in fixture mode and no message is sent. Without a Notion integration, the Notion projection is skipped. Neither affects settlement, because the money record is written first.
+
+### 3.3 Hosted demo
+
+The same code runs at <https://near-skypay.vercel.app> (frontend, Vercel) and <https://skypay-near-api.onrender.com> (API, Render, Postgres on Neon). Health: `GET /health` returns 200 with `database: connected` when Postgres answers, and 503 `degraded` when it does not.
+
+---
+
+## 4. For judges: how the criteria are addressed
+
+| Criterion | What to look at |
 |---|---|
-| [near-skypay.vercel.app](https://near-skypay.vercel.app) | Frontend |
-| [API health](https://skypay-near-api.onrender.com/health) | Queries the database: 200 when Postgres answers, 503 `degraded` when it does not. Not a chain-readiness proof |
+| **Technical implementation** | Contract-enforced policy (Section 2.4); conditional, idempotent payment paths with unit and sandbox tests; resumable provisioning checked on chain; receipt verification against finalized NEAR data; recovery that never resends. |
+| **Design** | One workspace with plain sections (`Invoices`, `Vault`, `Employees`, `Suppliers`, `Supplier bills`, `Supplier payouts`, `Company`), a readiness panel that says what is missing, and clear labels that tUSDC has no value. |
+| **Impact** | An agency's whole outgoing-and-incoming loop (bill, collect, allocate, pay, record) with an AI agent that cannot exceed its owner's limits. |
+| **Originality** | The vault is a NEAR-native policy contract with no upgrade path; the agent holds only a pay-only key; supplier bills can be submitted by outsiders but can never choose where money goes. |
+| **Sustainability** | Testnet only today. A production path would need: a durable sponsor budget, a key-replacement workflow for the agent's gas allowance, refunds, and a security audit (Section 5). |
 
-These are previously published endpoints; current uptime was not independently verified in the latest review. Free hosting can sleep, delaying API responses and pausing workers. Do not repeatedly submit a payment because a request is slow.
+**Evidence trail:** test outputs and live testnet transcripts are in [`evidence/`](evidence/README.md). Claims and their limits are in [CLAIMS.md](CLAIMS.md). Earlier planning, audits and superseded runs are in [`docsarchive/`](docsarchive/).
 
-## Recovery and known limitations
+**AI and tools used:** the agent in the app uses an LLM (Gemini, OpenAI, OpenRouter or MiniMax, configured by the operator). Development used Claude Code and Codex.
 
-- **No real-money or cross-chain execution.** The native backend refuses mainnet. Changing an RPC/token variable does not complete a mainnet migration. Intents previews cannot pay testnet invoices.
-- **Unknown is not failed.** Recovery queries existing vault payments and never blindly resends. A failed callback can leave funds reserved. Reconcile before any intentional replacement payment.
-- **Payroll names are one-shot identifiers.** A company/run-name pair is reserved before dispatch, including failed or uncertain runs. A different name intentionally creates new payments. The recovery worker now recomputes a run's status from its persisted lines (a run whose lines do not add up to its total is never shown as done), but items never dispatched before a crash are not resumed automatically.
-- **Supplier bill approval is off-chain.** Review and the Pay click are enforced by SkyPay's API. The vault enforces allow-list, limits, expiry and no-double-pay; it does not record per-bill owner approval, so the agent key could still pay an allow-listed supplier within limits. Binding approval on chain would need a new vault version.
-- **Finite agent gas allowance.** The agent's pay-only key has a fixed NEAR gas allowance (0.15 NEAR at setup). Readiness shows what is left; sending NEAR to the agent account does not refill it, and a key-replacement workflow is not implemented yet.
-- **Vault storage reserve.** Each payment record stays in contract storage for replay protection. New vaults cap `payment_id` and `invoice_ref` at 64 bytes and refuse a payment with a clear message when the reserve is low; anyone can top it up with a plain NEAR transfer. Readiness shows an estimate of records left.
-- **External delivery is not exactly-once.** Crashed running jobs are quarantined; SMTP/Notion acceptance followed by a timeout may need operator review. Provider acceptance is not proof an email arrived or was read.
-- **Keys and privacy need care.** The owner key is stored in browser localStorage with backup/import. The backend holds an encrypted restricted agent key. Public chains expose transfer information, and anyone holding a public invoice URL can read its invoice details.
-- **Sponsor controls are limited.** Rate limits and replay caches are process-local. Durable cost budgets, nonce coordination and measured operational fees need more work.
-- **Accounting is bounded.** Owner-authorized invoice refunds are not implemented (collections sit in the owner-controlled receiving account, and a vault withdrawal is not a customer refund). Refund automation, accumulated partial-payment collection and reminder automation are missing. The CSV merchant-fee value is fixed at zero, not an audited gas-cost ledger.
+---
 
-For operations and troubleshooting, use [docs/OPERATIONS.md](docs/OPERATIONS.md). See [the implementation plan](docs/IMPLEMENTATION_PLAN.md) for remaining release work; this is not a production-readiness claim.
+## 5. Limitations (read before judging)
 
-## Documentation and repository map
+- **Testnet only.** The backend refuses mainnet. tUSDC has no monetary value. Changing a token or RPC variable does not make this a production system.
+- **Intents is quote-only.** Cross-chain prices come from the 1Click quote API. There is no deposit address, no deposit tracking, and no refund lifecycle.
+- **Owner review of bills is an application control.** The vault enforces the allow-list, limits, expiry and no-double-pay. It does not record a separate per-bill approval, so the agent key could pay an allow-listed supplier within limits without a bill.
+- **The owner key lives in browser localStorage**, with backup and verified import as the recovery path. Losing every backup and browser means losing control of the company's accounts. A compromised server can spend up to the limits the owner has already set.
+- **Agent gas allowance is finite.** It is shown in the readiness panel. Sending NEAR to the agent account does not refill it, and a key-replacement workflow is not built yet.
+- **Not built:** owner-authorized refunds, automatic refunds, partial-payment accumulation, reminders, passkeys or social login, PDF bill extraction.
+- **Failed vault callbacks can leave funds reserved** until an operator investigates. There is no automatic override.
+- **External delivery is not exactly-once** for email and Notion. A timeout after the provider accepts a message can lead to a second message. The money record is never affected.
+- **Payroll lines not dispatched before a crash are not resumed automatically.** The run is shown as partial, never done.
+- **Sponsor funding is finite.** Each new company costs about 2.4 testnet NEAR from the sponsor.
+- **Not audited.** This is not a production security audit.
 
-| Resource | What to read it for |
-|---|---|
-| [Documentation index](docs/README.md) | Choose the right guide |
-| [Setup](docs/SETUP.md) / [Demo](docs/DEMO.md) | Install, run and demonstrate |
-| [API reference](docs/API.md) / [Operations](docs/OPERATIONS.md) | Integrate and diagnose failures |
-| [Architecture](docs/ARCHITECTURE.md) / [Security](SECURITY.md) | Custody, policies, payment states and trust |
-| [Validation](docs/VALIDATION.md) / [Claims](CLAIMS.md) | Actual outcomes and evidence limits |
-| [Audit](docs/AUDIT.md) / [Competitors](docs/COMPETITORS.md) | Findings and focused comparison |
-| [Plan](docs/IMPLEMENTATION_PLAN.md) / [Migration](MIGRATION.md) | Priorities and old-to-new decisions |
+---
 
-Source: `contracts/vault` is the policy contract; `contracts/test-ft` is the test token. Backend code is in `agenPay/agenpay-backend` (`server.js`, `lib/skypay.js`, `lib/near`, `lib/outbox.js`, `lib/reconciliation.js`, Prisma schema and scripts). Frontend code is in `agenPay/agenpay-frontend`; Finance is the owner workspace, `/invoice/[id]` is public checkout, and `/bills/submit/[token]` and `/bills/status/[token]` are the contractor bill pages (`lib/bills.js` on the backend). `evidence/` contains transcripts; `docs/legacy/` is historical, not current setup guidance.
+## 6. Repository map
 
-## Hackathon scope and reuse
+```
+README.md                  this file
+SECURITY.md                trust boundaries, secrets, privacy, recovery
+CLAIMS.md                  supported claims and their evidence limits
+LICENSE                    MIT
+render.yaml                API deployment blueprint (Render)
+contracts/
+  vault/                   policy vault (Rust): pay, fund, set_agent, payees, withdraw
+  test-ft/                 open-mint test token (tUSDC)
+  build-and-test.sh        rebuild, unit and sandbox tests, hashes
+agenPay/
+  agenpay-backend/         Express API, Prisma schema, NEAR adapter, agent, outbox, workers, tests
+  agenpay-frontend/        Next.js app: onboarding, Finance, Dashboard, checkout, bill pages
+docs/
+  SETUP.md                 installation and configuration reference
+  API.md                   HTTP routes
+  DEMO.md                  step-by-step judge walkthrough
+  OPERATIONS.md            recovery and troubleshooting
+  VALIDATION.md            what was run, when, and the actual results
+evidence/                  test outputs and live testnet transcripts
+docsarchive/               superseded plans, audits, migration notes, old runs
+```
 
-SkyPay, formerly AgenPay, reuses an earlier Sei/EVM product with agent, email and Notion functionality. The tag [`baseline-pre-near`](../../tree/baseline-pre-near) marks the migration boundary; inspect [the NEAR diff](../../compare/baseline-pre-near...main). The tag was created during the event and does not independently prove pre-event authorship. Eligible work and dates should be reviewed against the [event rules](https://nearhackathon.com/HACKATHON.md).
+### Reuse and provenance
 
-The NEAR work includes the vault/test-token contracts, restricted keys and sponsored relay, invoice/settlement ledger, outbox and reconciliation, exports, NEAR checkout, agent tools and Intents dry quotes. Employee/payroll features build on that workspace. Historical Sei wallet/transfer integrations are retained in Git history and legacy documentation.
-
-Libraries include near-sdk-rs, near-contract-standards, near-workspaces, near-api-js, Wallet Selector, Next.js, Express, Prisma and LangChain/LangGraph. Development used Claude Code and Codex. No competitor code was reused in this review. No win, official score or production audit result is claimed.
+SkyPay was rebuilt on NEAR from an earlier EVM/Sei agent-payments application. The tag [`baseline-pre-near`](../../tree/baseline-pre-near) marks the migration boundary, and the [NEAR diff](../../compare/baseline-pre-near...main) shows the work done during the hackathon. The tag was created during the event and does not prove pre-event authorship. Reused parts from the earlier app are the agent, email and Notion integrations; the NEAR vault and contracts, invoice and settlement ledger, outbox and recovery, bill inbox, exports, public checkout and Intents quotes are new. Libraries: near-sdk-rs, near-contract-standards, near-workspaces, near-api-js, Wallet Selector, Next.js, Express, Prisma, LangChain/LangGraph.

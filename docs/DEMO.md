@@ -1,6 +1,6 @@
 # Judge walkthrough and reproducible demonstration
 
-[Documentation index](README.md) | [Setup](SETUP.md) | [Validation](VALIDATION.md)
+[Documentation index](../README.md) | [Setup](SETUP.md) | [Validation](VALIDATION.md)
 
 ## Choose the evidence level
 

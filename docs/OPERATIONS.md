@@ -1,6 +1,6 @@
 # Operations, troubleshooting and recovery
 
-[Documentation index](README.md) | [Setup](SETUP.md) | [Security](../SECURITY.md)
+[Documentation index](../README.md) | [Setup](SETUP.md) | [Security](../SECURITY.md)
 
 ## Diagnose before retrying
 

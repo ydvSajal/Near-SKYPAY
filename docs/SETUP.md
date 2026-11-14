@@ -1,6 +1,6 @@
 # Local setup and configuration
 
-[Documentation index](README.md) | [Demo](DEMO.md) | [Troubleshooting](OPERATIONS.md)
+[Documentation index](../README.md) | [Demo](DEMO.md) | [Troubleshooting](OPERATIONS.md)
 
 Use the directory containing `agenPay/`, `contracts/` and `render.yaml` as the repository root. Some downloaded workspaces have a same-named outer directory. Keep backend, frontend and database terminals separate so commands run in the intended directory.
 
@@ -134,7 +134,7 @@ Open `http://localhost:3000`. For a production-mode check, run `npm run lint`, `
 | ADMIN_EMAIL, ADMIN_PASSWORD | Optional admin seed configuration; not needed for normal company registration |
 | Frontend `.env.local`: NEXT_PUBLIC_API_URL, NEXT_PUBLIC_NEAR_RPC_URL | Public API/RPC origins; use the same testnet RPC/network assumptions as the backend |
 
-The complete backend examples are [here](../agenPay/agenpay-backend/.env.example) and [here](../agenPay/agenpay-backend/.env.near.example). The root [.env.example](../.env.example) is a reference, not a file the API loads from the root directory.
+The complete backend examples are [here](../agenPay/agenpay-backend/.env.example) and [here](../agenPay/agenpay-backend/.env.near.example). The root [.env.example](../agenPay/agenpay-backend/.env.example) is a reference, not a file the API loads from the root directory.
 
 ## Rebuild and test contracts
 
