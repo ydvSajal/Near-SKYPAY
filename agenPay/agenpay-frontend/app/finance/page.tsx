@@ -5,7 +5,7 @@ import Link from "next/link"
 import { useAuth } from "@/lib/auth-context"
 import { authService } from "@/lib/auth"
 import { ensureOwnerKey, getStoredOwnerKey, importOwnerKey, ownerAction, toBaseUnits, fromBaseUnits, downloadOwnerKeyBackup, publicKeyOf, backupSaved } from "@/lib/near"
-import { ReadinessPanel } from "@/components/app/readiness"
+import { ReadinessPanel, rows as readinessRows } from "@/components/app/readiness"
 import { BillsPanel } from "@/components/app/bills-panel"
 import { AppHeader } from "@/components/app/app-header"
 import { StatusPill } from "@/components/app/status"
@@ -13,7 +13,7 @@ import { BusinessForm } from "@/components/app/business-form"
 import { PayrollPicker, PayrollPreview } from "@/components/app/payroll-import"
 import { EmployeesPanel } from "@/components/app/employees-panel"
 import {
-  AlertCircle, ArrowRight, Briefcase, Building2, CheckCircle2, Download, ExternalLink, FileText, Inbox, KeyRound, Loader2, Plus, Send, ShieldCheck, Trash2, Users, Vault, X,
+  AlertCircle, BookOpen, Briefcase, Building2, CheckCircle2, Download, ExternalLink, FileText, Inbox, KeyRound, ListChecks, Loader2, Plus, Send, ShieldCheck, Trash2, Users, Vault, X,
 } from "lucide-react"
 
 // ---------------------------------------------------------------- types
@@ -77,6 +77,7 @@ function Section({ id, icon: I, title, sub, children }: { id?: string; icon: typ
 
 // Ordered the way money moves: get paid, set the agent's budget, choose who can be paid, pay them.
 const TABS = [
+  { id: "readiness", label: "Readiness", does: "Setup checklist", icon: ListChecks },
   { id: "invoices", label: "Invoices", does: "Bill clients, see who paid", icon: FileText },
   { id: "vault", label: "Vault", does: "Agent budget and limits", icon: Vault },
   { id: "employees", label: "Employees", does: "Your team and payroll", icon: Briefcase },
@@ -84,12 +85,20 @@ const TABS = [
   { id: "bills", label: "Supplier bills", does: "Bills contractors sent you", icon: Inbox },
   { id: "pay", label: "Supplier payouts", does: "Pay one or many vendors", icon: Send },
   { id: "company", label: "Company", does: "Details on your invoices", icon: Building2 },
+  { id: "guide", label: "Guide", does: "How it all works", icon: BookOpen },
 ]
 
-const FLOW = [
-  ["1. Get paid", "Clients pay your invoices. The money lands in your receiving account, which only you control."],
-  ["2. Set a budget", "You move part of it into the vault and set the agent's limits. Nothing else is at risk."],
+// ponytail: all the long explanatory text lives here (Guide tab) so the working tabs stay short.
+const GUIDE = [
+  ["1. Get paid", "Clients pay your invoices. The money lands in your receiving account, which only you control. An invoice turns paid only after the transfer is verified on NEAR."],
+  ["2. Set a budget", "You move part of it into the vault and set the agent's limits. Nothing else is at risk. The contract enforces the limits, not SKYPay's server."],
   ["3. Pay your team and suppliers", "Run payroll for your employees or pay vendors from the vault. The contract refuses anything outside your limits, and every payout is logged in Notion."],
+  ["Agent spending policy", "Per payment is the largest single payment. Per day is the total the agent may send in one day (UTC). After the valid days pass, the agent can no longer pay until you renew. Revoking refuses every payment on chain."],
+  ["Employees", "Set each person's monthly pay once, then run payroll in one click, from an Excel sheet, or by asking the agent. Runs are logged in Notion under Payouts."],
+  ["Suppliers", "Outside vendors the vault may pay. You add and approve them; the agent cannot add one or take an address from chat, email or an invoice."],
+  ["Supplier bills", "Contractors submit bills through your private inbox link. SKYPay matches each to a registered supplier by email and flags unknown senders, changed payout details and duplicates. Review is an app-level control: the vault enforces the allow-list, limits, expiry and no-double-pay."],
+  ["Supplier payouts", "Send money from the vault to approved payees with the agent's key. Over-limit, unapproved or revoked payments are refused on chain and logged in Notion under Supplier payments."],
+  ["Owner key", "Generated in your browser, never sent to SKYPay. Keep the backup file safe: without it you cannot fund the vault, change limits or approve suppliers."],
 ]
 
 // ------------------------------------------------------------------ page
@@ -245,6 +254,12 @@ export default function FinancePage() {
   // A stored key only counts if it is the company's registered owner key.
   const keyState: "ok" | "missing" | "wrong" = !hasKey ? "missing" : keyPub && st.ownerPublicKey && keyPub !== st.ownerPublicKey ? "wrong" : "ok"
   const canSign = keyState === "ok"
+  const rdy = {
+    isTestToken: st.isTestToken, tokenShort, keyState, backupSaved: backedUp,
+    companyBalance: Number(fromBaseUnits(st.companyBalance || "0")), vaultAvailable: Number(fromBaseUnits(st.vaultAvailable || "0")),
+    agentPolicy: st.agentPolicy, agentKey: st.agentKey, vaultStorage: st.vaultStorage, sponsor: st.sponsor,
+  }
+  const rdyOpen = st.company ? readinessRows(rdy).filter((x) => x.state !== "ok").length : 0
   const lineTotal = lines.reduce((a, l) => a + Number(l.quantity || 0) * Number(l.unitPrice || 0), 0)
 
   return (
@@ -335,19 +350,6 @@ export default function FinancePage() {
           </Section>
         ) : (
           <>
-            {/* How money moves through the three accounts */}
-            <ol className="grid gap-px overflow-hidden rounded-xl border border-border bg-border md:grid-cols-3">
-              {FLOW.map(([t, d], i) => (
-                <li key={t} className="flex gap-3 bg-card px-5 py-3">
-                  <div className="min-w-0 flex-1">
-                    <p className="font-semibold">{t}</p>
-                    <p className="text-sm leading-relaxed text-muted-foreground">{d}</p>
-                  </div>
-                  {i < 2 && <ArrowRight aria-hidden className="mt-1 hidden h-4 w-4 shrink-0 text-muted-foreground md:block" />}
-                </li>
-              ))}
-            </ol>
-
             {/* Accounts + balances */}
             <dl className="grid grid-cols-2 overflow-hidden rounded-xl border border-border bg-card lg:grid-cols-4">
               {[
@@ -365,12 +367,6 @@ export default function FinancePage() {
                 </div>
               ))}
             </dl>
-
-            <ReadinessPanel
-              isTestToken={st.isTestToken} tokenShort={tokenShort} keyState={keyState} backupSaved={backedUp}
-              companyBalance={Number(fromBaseUnits(st.companyBalance || "0"))} vaultAvailable={Number(fromBaseUnits(st.vaultAvailable || "0"))}
-              agentPolicy={st.agentPolicy} agentKey={st.agentKey} vaultStorage={st.vaultStorage} sponsor={st.sponsor}
-            />
 
             {keyState !== "ok" && (
               <div className={`grid gap-3 rounded-xl border p-5 ${keyState === "wrong" ? "border-destructive/40 bg-destructive/5" : "border-warning/40 bg-warning/5"}`}>
@@ -406,7 +402,7 @@ export default function FinancePage() {
               {/* Section sidebar: a column on desktop, a scrollable row on small screens */}
               <nav aria-label="Finance sections" className="flex gap-1 overflow-x-auto lg:sticky lg:top-20 lg:flex-col">
                 {TABS.map(({ id, label, does, icon: I }) => {
-                  const count = { vault: 0, company: 0, employees: employees.length, payees: suppliers.length, pay: payments.length, invoices: invoices.length }[id]
+                  const count = { vault: 0, company: 0, employees: employees.length, payees: suppliers.length, pay: payments.length, invoices: invoices.length, bills: 0, guide: 0, readiness: 0 }[id]
                   return (
                     <button
                       key={id}
@@ -417,15 +413,19 @@ export default function FinancePage() {
                     >
                       <I className={`h-5 w-5 shrink-0 ${tab === id ? "text-primary" : ""}`} strokeWidth={2} />
                       <span className="flex-1 whitespace-nowrap">{label}<span className="hidden text-sm font-normal text-muted-foreground lg:block">{does}</span></span>
-                      {!!count && <span className="tabular text-xs text-muted-foreground">{count}</span>}
+                      {id === "readiness"
+                        ? rdyOpen ? <span className="tabular rounded-full bg-warning/15 px-1.5 text-xs font-semibold text-warning">{rdyOpen}</span> : <CheckCircle2 aria-label="All done" className="h-4 w-4 text-success" />
+                        : !!count && <span className="tabular text-xs text-muted-foreground">{count}</span>}
                     </button>
                   )
                 })}
               </nav>
 
               <div className="min-w-0">
+              {tab === "readiness" && <ReadinessPanel {...rdy} />}
+
               {/* Vault controls */}
-              {tab === "vault" && <Section id="vault" icon={Vault} title="Operating vault" sub="A smart contract that holds the agent's spending budget. Move money in, set limits, take it back any time. The contract enforces the limits, not SKYPay's server.">
+              {tab === "vault" && <Section id="vault" icon={Vault} title="Operating vault" sub="The agent's spending budget. Fund it, set limits, withdraw any time.">
                 <div className="flex flex-wrap gap-2">
                   {st.isTestToken && (
                     <button type="button" className={btnSecondary} disabled={!!busy} onClick={() => run("Test tokens", async () => {
@@ -461,9 +461,6 @@ export default function FinancePage() {
 
                 <div className="rounded-lg bg-muted p-4">
                   <p className="font-medium">Agent spending policy</p>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Per payment is the largest single payment. Per day is the total the agent may send in one day (UTC). After the valid days pass, the agent can no longer pay until you renew.
-                  </p>
                   <div className="mt-3 grid grid-cols-3 gap-3">
                     <F id="pertx" label="Per payment"><input id="pertx" inputMode="decimal" value={perTx} onChange={(e) => setPerTx(e.target.value)} className={`${input} tabular`} /></F>
                     <F id="daily" label="Per day"><input id="daily" inputMode="decimal" value={daily} onChange={(e) => setDaily(e.target.value)} className={`${input} tabular`} /></F>
@@ -493,14 +490,14 @@ export default function FinancePage() {
               </Section>}
 
               {/* Employees */}
-              {tab === "employees" && <Section id="employees" icon={Briefcase} title="Employees" sub="The people who work for the company. Set each person's monthly pay once, then run payroll in one click, from an Excel sheet, or by asking the agent. Runs are logged in Notion under Payouts.">
+              {tab === "employees" && <Section id="employees" icon={Briefcase} title="Employees" sub="Your team. Set monthly pay once, then run payroll.">
                 {st.vault && user ? (
                   <EmployeesPanel employees={employees} userId={user.id} company={st.company!} vault={st.vault} vaultAvailable={st.vaultAvailable} hasKey={canSign} reload={load} />
                 ) : <p className="rounded-lg bg-muted p-4 text-sm text-muted-foreground">Set up the company NEAR account first.</p>}
               </Section>}
 
               {/* Payees */}
-              {tab === "payees" && <Section id="payees" icon={Users} title="Suppliers" sub="Outside vendors the vault may pay. You add them here; the agent cannot add one or take an address from chat, email or an invoice. Your staff live under Employees.">
+              {tab === "payees" && <Section id="payees" icon={Users} title="Suppliers" sub="Outside vendors the vault may pay. Only you can add them.">
                 {suppliers.length ? (
                   <ul className="divide-y divide-border rounded-lg border border-border">
                     {suppliers.map((x) => (
@@ -555,13 +552,12 @@ export default function FinancePage() {
               </Section>}
 
             {/* Supplier bill inbox */}
-            {tab === "bills" && <Section id="bills" icon={Inbox} title="Supplier bills" sub="Contractors submit bills through your private inbox link. SKYPay matches each bill to a registered supplier by email, flags unknown senders, changed payout details and possible duplicates, and pays only to the account you registered. Each bill becomes one vault payment, logged in payments.csv and Notion like any other payout.">
+            {tab === "bills" && <Section id="bills" icon={Inbox} title="Supplier bills" sub="Bills your contractors sent. Review, then pay.">
               <BillsPanel tokenShort={tokenShort} onChange={() => { load().catch(() => {}) }} />
-              <p className="text-sm text-muted-foreground">Your review here is an app-level control: the vault contract enforces the supplier allow-list, per-payment and daily limits, expiry and no-double-pay, but it does not record a separate per-bill approval.</p>
             </Section>}
 
             {/* Supplier payments */}
-            {tab === "pay" && <Section id="pay" icon={Send} title="Supplier payouts" sub="Send money from the vault to approved payees, using the agent's key. Over-limit, unapproved or revoked payments are refused on chain. Every payout is also logged in your Notion workspace under Supplier payments.">
+            {tab === "pay" && <Section id="pay" icon={Send} title="Supplier payouts" sub="Pay approved payees from the vault.">
               <div role="tablist" aria-label="Payout type" className="inline-flex w-fit rounded-lg border border-border bg-muted p-1">
                 {(["single", "batch", "import"] as const).map((m) => (
                   <button key={m} type="button" role="tab" aria-selected={payMode === m} onClick={() => setPayMode(m)}
@@ -675,7 +671,7 @@ export default function FinancePage() {
             </Section>}
 
             {/* Invoices */}
-            {tab === "invoices" && <Section id="invoices" icon={FileText} title="Invoices" sub="Create an invoice and SKYPay emails the client a pay link. It turns paid only after the transfer is verified on NEAR, and the money goes to your receiving account.">
+            {tab === "invoices" && <Section id="invoices" icon={FileText} title="Invoices" sub="Create an invoice; the client gets a pay link by email.">
               <div className="grid gap-x-3 gap-y-2 sm:grid-cols-2 lg:grid-cols-4">
                 <F id="inv-email" label="Client email"><input id="inv-email" type="email" value={inv.email} onChange={(e) => setInv({ ...inv, email: e.target.value })} className={input} /></F>
                 <F id="inv-name" label="Client name"><input id="inv-name" value={inv.name} onChange={(e) => setInv({ ...inv, name: e.target.value })} className={input} /></F>
@@ -760,6 +756,17 @@ export default function FinancePage() {
                 <dt className="text-muted-foreground">Vault contract</dt><dd className="break-all font-mono text-xs">{st.vault}</dd>
                 <dt className="text-muted-foreground">Agent account</dt><dd className="break-all font-mono text-xs">{st.agent}</dd>
                 <dt className="text-muted-foreground">Owner key</dt><dd>{keyState === "ok" ? "In this browser, verified against the company. Keep the backup file safe." : keyState === "wrong" ? "The key in this browser is not the company owner key. Import the right backup above." : "Not in this browser. Import your backup above."}</dd>
+              </dl>
+            </Section>}
+
+            {tab === "guide" && <Section id="guide" icon={BookOpen} title="Guide" sub="The important topics, one place.">
+              <dl className="grid gap-3 md:grid-cols-2">
+                {GUIDE.map(([t, d]) => (
+                  <div key={t} className="rounded-lg bg-muted p-4">
+                    <dt className="font-semibold">{t}</dt>
+                    <dd className="mt-1 text-sm leading-relaxed text-muted-foreground">{d}</dd>
+                  </div>
+                ))}
               </dl>
             </Section>}
               </div>
