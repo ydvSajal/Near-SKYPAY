@@ -37,37 +37,40 @@ SkyPay lets a small agency run its money in one place: bill clients, take a supp
 ### 2.1 Components
 
 ```mermaid
-flowchart LR
+flowchart TB
   subgraph Browser
-    FE[Next.js app<br/>Finance, Dashboard, public checkout,<br/>contractor bill pages]
-    KEY[(Owner key<br/>localStorage)]
+    FE[Next.js app]
+    KEY[(Owner key in localStorage)]
   end
   subgraph Server[Express API on Render]
-    API[HTTP routes<br/>nearRouter, bills, skypay]
-    AG[Agent<br/>typed tools + LLM]
-    OB[Outbox worker<br/>email, Notion]
-    REC[Reconciliation worker<br/>read-only recovery]
-    DB[(Postgres<br/>ledger)]
+    API[HTTP routes and business rules]
+    AG[Agent: typed tools plus LLM]
+    OB[Outbox worker: email and Notion]
+    REC[Reconciliation worker: read-only]
+    DB[(Postgres ledger)]
     SEC[(Encrypted agent key)]
   end
   subgraph NEAR[NEAR testnet]
-    VAULT[Vault contract<br/>Rust, no access keys]
-    TOKEN[tUSDC token<br/>NEP-141]
+    SPON[Sponsor relayer: pays gas only]
+    AGT[Agent account: pay-only key]
+    VAULT[Vault contract: no access keys]
+    TOKEN[tUSDC token, NEP-141]
     RCV[Company receiving account]
-    AGT[Agent account<br/>pay-only key]
-    SPON[Sponsor relayer<br/>pays gas only]
   end
-  FE -- signed delegate --> API
-  KEY -.signs.-> FE
-  API --> SPON -- relayed owner action --> VAULT
-  API -- pay with agent key --> AGT -- vault.pay --> VAULT
-  VAULT -- ft_transfer --> TOKEN
-  API -- verify FINAL receipts --> TOKEN
+  KEY -. signs .-> FE
+  FE -->|signed owner action| API
+  AG --> API
   API --> DB
+  API --> SEC
   OB --> DB
   REC --> DB
-  AG --> API
-  API --> SEC
+  API -->|relay| SPON
+  SPON --> VAULT
+  API -->|pay with agent key| AGT
+  AGT --> VAULT
+  VAULT -->|ft_transfer| TOKEN
+  TOKEN --> RCV
+  API -->|verify FINAL receipts| TOKEN
 ```
 
 | Layer | Code | Responsibility |
