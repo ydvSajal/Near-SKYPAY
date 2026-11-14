@@ -85,6 +85,21 @@ Full endpoint list: [docs/API.md](docs/API.md).
 
 - Testnet and test token only. Cross-chain checkout (NEAR Intents) is a **quote only** and never takes a deposit.
 - Email needs SMTP credentials; without them jobs run in fixture mode and nothing is delivered. Notion needs the user to authorize their own workspace.
-- The sponsor account pays gas on testnet and can run low. Check the Readiness tab ("SKYPay gas sponsor") if provisioning fails.
+- The sponsor account pays gas on testnet and can run low. If provisioning fails, see [If company setup fails with "internal error"](#if-company-setup-fails-with-internal-error) below.
 - Public invoice links are bearer links. See [SECURITY.md](SECURITY.md).
 - Never run seeds or `prisma db push` against a production `DATABASE_URL`.
+
+## If company setup fails with "internal error"
+
+Symptom: Level 3 step 2 ("Create company NEAR account") shows `internal error`. Render logs show
+`POST /api/near/provision NotEnoughBalanceError: Not enough balance for skypay-sponsor-...testnet`.
+
+Cause: the gas sponsor ran out of testnet NEAR. One company setup costs about 2.5 NEAR (about 2 for the vault contract storage, 0.2 each for the company and agent accounts).
+
+What happens automatically: before each setup the API tops the sponsor up from the testnet helper if it holds under 3 NEAR (`NearService.topUpSponsor`). The helper allows roughly 10 accounts per 8 hours per IP, so heavy testing can exhaust it.
+
+What to do if the error persists:
+1. Click "Try again". The browser key is kept and setup resumes the same accounts instead of creating new ones.
+2. Check the Render logs for `sponsor refill skipped:` and the sponsor balance in the `NotEnoughBalanceError` line.
+3. Send testnet NEAR to the sponsor account named in the error. Any testnet faucet or funded testnet wallet works. About 20 NEAR covers 8 setups.
+4. Retry. Do not delete the stuck user: the half-finished setup resumes where it stopped.

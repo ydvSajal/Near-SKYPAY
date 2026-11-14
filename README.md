@@ -17,6 +17,14 @@ SkyPay lets a small agency run its money in one place: bill clients, take a supp
 | Security model | [SECURITY.md](SECURITY.md) |
 | What is and is not claimed | [CLAIMS.md](CLAIMS.md) |
 
+## Screenshots
+
+| Overview: company, vault and agent accounts, a paid invoice with its NEAR transaction, and the payment agent | Notion workspace kept in sync by the agent (stats, Invoices, Supplier payments, Ledger, Payouts) |
+|---|---|
+| ![SkyPay overview on NEAR testnet, showing a paid invoice with its transaction link](docs/screenshots/overview-paid-invoice.png) | ![Notion workspace projection of SkyPay payments](docs/screenshots/notion-workspace.png) |
+
+Captured while testing on NEAR testnet. Amounts are `tUSDC`, a test token with no value.
+
 ---
 
 ## 1. What it does
