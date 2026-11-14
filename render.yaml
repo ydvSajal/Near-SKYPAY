@@ -13,7 +13,7 @@ services:
     region: virginia
     plan: free
     rootDir: agenPay/agenpay-backend
-    buildCommand: npm ci && npx prisma generate
+    buildCommand: npm ci && npx prisma generate && npm run admin:seed
     startCommand: node server.js
     healthCheckPath: /health
     envVars:

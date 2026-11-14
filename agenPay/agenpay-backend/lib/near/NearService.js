@@ -144,6 +144,24 @@ export class NearService {
     if (!(await this.accountExists(newAccountId))) throw new Error(`account ${newAccountId} not visible on chain`);
   }
 
+  /**
+   * Testnet only: if the sponsor is below `min`, refill it from the network helper (throwaway account whose
+   * whole balance is swept into the sponsor). Same mechanism as near:bootstrap. The helper rate-limits per IP;
+   * we stop on its first refusal and never try to get around it.
+   */
+  async topUpSponsor(min = 3n * 10n ** 24n, maxRounds = 3) {
+    if (this.cfg.suffix !== 'testnet') return 0;
+    let rounds = 0;
+    while (rounds < maxRounds && BigInt((await this.accountInfo(this.relayerId))?.amount ?? 0) < min) {
+      const kp = KeyPair.fromRandom('ed25519');
+      const funder = `skypay-fund-${crypto.randomBytes(4).toString('hex')}.testnet`;
+      await this.helperCreate(funder, kp.getPublicKey().toString());
+      await this.account(funder, kp.toString()).deleteAccount(this.relayerId);
+      rounds++;
+    }
+    return rounds;
+  }
+
   account(id, secret) {
     return new Account(id, this.provider, KeyPairSigner.fromSecretKey(secret));
   }

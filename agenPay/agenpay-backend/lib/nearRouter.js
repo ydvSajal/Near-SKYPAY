@@ -76,6 +76,11 @@ export function createNearRouter({ prisma, near, skypay, authenticateToken }) {
       const state = u.provisionState || null;
       const base = (u.name || u.email.split('@')[0]).toLowerCase().replace(/[^a-z0-9]+/g, '').slice(0, 12) || 'co';
       const slug = state?.slug || `${base}${crypto.randomBytes(2).toString('hex')}`;
+      // a setup costs ~2.5 NEAR; keep the testnet sponsor from running dry between judges/demo users
+      await near.topUpSponsor().then(
+        (n) => n && console.log(`sponsor refilled from testnet helper (${n} round(s))`),
+        (e) => console.warn(`sponsor refill skipped: ${e.message}`),
+      );
       const p = await near.provision({
         slug, ownerPublicKey: publicKey, state,
         save: (s) => prisma.user.update({ where: { id: u.id }, data: { provisionState: s } }),
