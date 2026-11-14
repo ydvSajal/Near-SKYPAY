@@ -248,6 +248,8 @@ The same code runs at <https://near-skypay.vercel.app> (frontend, Vercel) and <h
 
 **AI and tools used:** the agent in the app uses an LLM (Gemini, OpenAI, OpenRouter or MiniMax, configured by the operator). Development used Claude Code and Codex.
 
+**Libraries:** near-sdk-rs, near-contract-standards, near-workspaces, near-api-js, Wallet Selector, Next.js, Express, Prisma, LangChain/LangGraph.
+
 ---
 
 ## 5. Limitations (read before judging)
@@ -290,7 +292,3 @@ docs/
 evidence/                  test outputs and live testnet transcripts
 docsarchive/               superseded plans, audits, migration notes, old runs
 ```
-
-### Reuse and provenance
-
-SkyPay was rebuilt on NEAR from an earlier EVM/Sei agent-payments application. The tag [`baseline-pre-near`](../../tree/baseline-pre-near) marks the migration boundary, and the [NEAR diff](../../compare/baseline-pre-near...main) shows the work done during the hackathon. The tag was created during the event and does not prove pre-event authorship. Reused parts from the earlier app are the agent, email and Notion integrations; the NEAR vault and contracts, invoice and settlement ledger, outbox and recovery, bill inbox, exports, public checkout and Intents quotes are new. Libraries: near-sdk-rs, near-contract-standards, near-workspaces, near-api-js, Wallet Selector, Next.js, Express, Prisma, LangChain/LangGraph.
