@@ -17,7 +17,7 @@ Read [CLAIMS.md](CLAIMS.md) for what is and is not claimed. Everything below is 
 ## Level 1: no secrets, no network (about 1 minute)
 
 ```sh
-cd agenPay/agenpay-backend && npm ci && npm test          # expect: tests 59, pass 59, fail 0
+cd agenPay/agenpay-backend && npm ci && npm test          # expect: tests 62, pass 62, fail 0
 cd ../agenpay-frontend    && npm ci && npx tsc --noEmit && npm run lint
 cd ../../contracts        && cargo test -p skypay-vault --lib   # needs Rust; same job runs in CI
 ```

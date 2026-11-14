@@ -112,10 +112,29 @@ test('generic execution or callback error after dispatch remains unknown', async
     payee: { findFirst: async () => ({ nearAccount: 'supplier.testnet' }) },
     paymentAttempt: {
       findUnique: async () => null,
+      findFirst: async () => null,
       create: async ({ data }) => (a = { id: 'a', ...data }),
       update: async ({ data }) => Object.assign(a, data),
     },
   }, near: { network: 'testnet', agentPay: async () => { throw Error('FunctionCallError: callback on_paid failed'); } },
   outbox: { enqueue: async () => {} } });
   assert.equal((await sp.paySupplier('u', { amount: '1', memo: 'test' })).status, 'unknown');
+});
+
+test('Notion monitor: a row whose Notion update failed is not invoiced twice on the next poll', async () => {
+  const { AgenPayAgent } = await import('../lib/AgentPayAgent.js');
+  const invoices = [];
+  const skypay = {
+    prisma: { invoice: { findFirst: async ({ where }) => invoices.find((i) => i.userId === where.userId && i.seller?.sourceRef === where.seller.equals) || null } },
+    createInvoice: async (userId, input) => { const i = { id: `i${invoices.length}`, userId, seller: { sourceRef: input.sourceRef } }; invoices.push(i); return i; },
+  };
+  const self = {
+    userId: 'u1', sharedServices: { skypay },
+    notion: { pages: { update: async () => { throw new Error('Notion unavailable'); } } },
+    getNotionProperty: () => null,
+  };
+  const page = { id: 'row-1', properties: { Amount: { number: 10 }, 'Recipient Email': { email: 'c@example.com' } } };
+  await AgenPayAgent.prototype.processNotionEntry.call(self, page, {});
+  await AgenPayAgent.prototype.processNotionEntry.call(self, page, {});
+  assert.equal(invoices.length, 1);
 });

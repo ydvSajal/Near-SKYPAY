@@ -51,7 +51,9 @@ export class SkyPay {
               userId, number, customerEmail: email, customerName: input.customerName?.slice(0, 120) || null,
               description: input.description?.slice(0, 500) || null, lineItems: items, amount,
               asset: 'USDC', assetContract: this.near.token, decimals: 6, network: `near:${this.near.network}`,
-              receiver: u.nearAccountId, dueDate: due, seller: sellerOf(u),
+              receiver: u.nearAccountId, dueDate: due,
+              // ponytail: source ref (e.g. a Notion row) rides in the seller snapshot to avoid a schema migration; stripped from public views
+              seller: input.sourceRef ? { ...sellerOf(u), sourceRef: String(input.sourceRef).slice(0, 120) } : sellerOf(u),
             },
           });
           await financialJobs(tx, userId, created.id, 'pending');
@@ -213,9 +215,14 @@ export class SkyPay {
         results.push(await this.paySupplier(userId, { payeeId: it.payeeId, amount: it.amount, memo: it.memo, idempotencyKey: `batch:${batch.id}:${i}`, batchId: batch.id }));
       }
     } catch (e) {
-      // unexpected error (e.g. DB down) mid-batch: never leave the batch "queued"; unpaid items count as not settled
-      const settled = results.filter((a) => a.status === 'settled').length;
-      await this.prisma.payoutBatch.update({ where: { id: batch.id }, data: { status: settled === 0 ? 'failed' : 'partial' } }).catch(() => {});
+      // Unexpected error (e.g. DB down) mid-batch: never leave the batch "queued", and never call it failed
+      // while any line's outcome is uncertain (the line that threw may already have been dispatched).
+      // Persisted lines are the truth; if they cannot be read, stay "processing" for the reconciliation worker.
+      const lines = await this.prisma.paymentAttempt.findMany({ where: { batchId: batch.id } }).catch(() => null);
+      const uncertain = !lines || [...results, ...lines].some((a) => !['settled', 'failed'].includes(a.status));
+      const settled = (lines || []).filter((a) => a.status === 'settled').length;
+      const status = uncertain ? 'processing' : settled === 0 ? 'failed' : 'partial';
+      await this.prisma.payoutBatch.update({ where: { id: batch.id }, data: { status } }).catch(() => {});
       throw e;
     }
     const status = finish();
@@ -250,6 +257,17 @@ export class SkyPay {
     };
     const existing = await this.prisma.paymentAttempt.findUnique({ where: { paymentId } });
     if (existing) return same(existing);
+    if (!batchId) {
+      // A retry under a NEW key (page reload, agent re-asked later) must not send a second copy of a payment whose
+      // outcome is still unknown. Settled/failed ones do not block: paying the same supplier again is then deliberate.
+      // ponytail: read-then-create, not a lock; two simultaneous new keys can still both pass (the vault limits bound it).
+      const pending = await this.prisma.paymentAttempt.findFirst({
+        where: { userId, direction: 'OUT', batchId: null, recipient: payee.nearAccount, amount: base, status: { in: ['submitted', 'unknown', 'processing'] } },
+      });
+      if (pending && (pending.memo || '') === String(memo || '').slice(0, 120)) {
+        throw httpErr(409, `an identical payment to ${payee.name} is still unresolved (${pending.status}); reconcile it before paying again`);
+      }
+    }
     const expiresAtMs = Date.now() + 15 * 60_000;
     let attempt;
     try {

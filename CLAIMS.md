@@ -40,7 +40,7 @@ This file summarizes current claim support. Source references establish implemen
 
 ## Latest local checks
 
-November 15, 2026: settlement verifier now nets out refunds and burns leaving the receiver in the paying transaction (`ft_transfer_call` refund path); **59 backend tests** pass ([output](evidence/backend-tests-20261115.txt)). The fresh-clone `agent-smoke.mjs` run passes without NEAR keys.
+November 15, 2026: settlement verifier now nets out refunds and burns leaving the receiver in the paying transaction (`ft_transfer_call` refund path); Also: batch status stays `processing` when a line is unresolved; a new-key retry of an unresolved identical payment is refused; removing an approved payee revokes it on the vault first; a Notion row whose update failed is not invoiced twice; the demo payer is rate-limited. **62 backend tests** pass ([output](evidence/backend-tests-20261115.txt)). The fresh-clone `agent-smoke.mjs` run passes without NEAR keys.
 
 November 14, 2026: **58 backend tests**, frontend TypeScript and ESLint passed; **24 vault unit tests and the sandbox test** passed on a fresh rebuild in WSL; the supplier bill inbox ran live on testnet against a freshly provisioned company. See [exact commands and actual results](docs/VALIDATION.md) rather than inferring live behavior from counts.
 

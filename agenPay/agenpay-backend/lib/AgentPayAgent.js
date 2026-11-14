@@ -505,7 +505,7 @@ export class AgenPayAgent {
 
       tool(safe(async ({ payee, amount, memo }) => {
         const p = await skypay.findPayee(userId, payee);
-        if (!p) return { success: false, error: `"${payee}" is not a registered payee. The owner must add it in the Vault tab; I cannot accept payout addresses from chat or email.` };
+        if (!p) return { success: false, error: `"${payee}" is not a registered payee. The owner must add it in the Suppliers tab (Finance); I cannot accept payout addresses from chat or email.` };
         const bucket = Math.floor(Date.now() / 600_000); // same payee+amount+memo within 10 min = same payment
         const a = await skypay.paySupplier(userId, { payeeId: p.id, amount, memo, idempotencyKey: `agent|${p.id}|${amount}|${memo || ''}|${bucket}` });
         return {
@@ -1007,7 +1007,10 @@ Rules:
       const description = this.getNotionProperty(props, 'Description') || 'Payment request from Notion';
       if (!amount || !email || props['X402Pay Link']?.url) return; // incomplete, or already processed
       const unitPrice = String(amount);
-      const inv = await skypay.createInvoice(this.userId, {
+      // One Notion row = one invoice, even if the Notion update below failed on an earlier poll.
+      const sourceRef = `notion:${notionPage.id}`;
+      const inv = await skypay.prisma.invoice.findFirst({ where: { userId: this.userId, seller: { path: ['sourceRef'], equals: sourceRef } } }) ||
+        await skypay.createInvoice(this.userId, { sourceRef,
         customerEmail: email, customerName: this.getNotionProperty(props, 'Recipient Name') || undefined, description,
         dueDate: new Date(Date.now() + 14 * 86_400_000).toISOString(),
         lineItems: [{ description, quantity: 1, unitPrice }],

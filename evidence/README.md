@@ -8,7 +8,7 @@ Read each transcript's own timestamp, network, token and account identities. Dif
 
 | File | What it shows |
 |---|---|
-| [backend-tests-20261115.txt](backend-tests-20261115.txt) | 59 passing backend tests, including the new refund-netting settlement test (November 15) |
+| [backend-tests-20261115.txt](backend-tests-20261115.txt) | 62 passing backend tests, including refund netting, unresolved-batch status, retry duplicate guard and Notion row dedupe (November 15) |
 | [backend-tests-20261114.txt](backend-tests-20261114.txt) | 58 passing backend tests (database, RPC and provider doubles): supplier bills, resumable provisioning, batch recovery, outbox and receipt verification |
 | [contract-rebuild-20261114-review.txt](contract-rebuild-20261114-review.txt) | Fresh cargo-near rebuild in WSL: 24 vault unit tests (including the storage-reserve boundary) and the sandbox scenario, with artifact hashes |
 | [bills-smoke-testnet.txt](bills-smoke-testnet.txt) | Live NEAR testnet supplier-bill journey on a freshly provisioned company, using test tUSDC (no monetary value) |

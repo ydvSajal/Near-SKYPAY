@@ -25,6 +25,9 @@ function setup({ available = '100000000', refuse = [], dbDownAt = -1, unknown = 
         const a = { id: `a${attempts.length}`, ...data }; attempts.push(a); return a;
       },
       update: async ({ where, data }) => Object.assign(attempts.find((a) => a.id === where.id), data),
+      findMany: async ({ where }) => attempts.filter((a) => a.batchId === where.batchId),
+      findFirst: async ({ where }) => attempts.find((a) => a.userId === where.userId && (a.batchId ?? null) === where.batchId &&
+        a.recipient === where.recipient && a.amount === where.amount && where.status.in.includes(a.status)) || null,
     },
     payoutBatch: {
       findFirst: async ({ where }) => batches.find((b) => b.userId === where.userId && b.kind === where.kind && b.label === where.label) || null,
@@ -96,6 +99,24 @@ test('unexpected error mid-batch: batch is never left queued', async () => {
   const none = setup({ dbDownAt: 0 });
   await assert.rejects(none.sp.payBatch('u1', { items: [item('p1')] }), /db down/);
   assert.equal(none.batches[0].status, 'failed');
+});
+
+test('a retry under a new key cannot duplicate an unresolved single payment; a settled one does not block', async () => {
+  const { sp, attempts } = setup({ unknown: ['acme.testnet'] });
+  assert.equal((await sp.paySupplier('u1', { payeeId: 'p1', amount: '10', memo: 'inv', idempotencyKey: 'click-1' })).status, 'unknown');
+  await assert.rejects(sp.paySupplier('u1', { payeeId: 'p1', amount: '10', memo: 'inv', idempotencyKey: 'click-2' }), { status: 409 });
+  assert.equal(attempts.length, 1);
+  attempts[0].status = 'settled'; // reconciliation resolved it
+  assert.equal((await sp.paySupplier('u1', { payeeId: 'p2', amount: '10', memo: 'inv', idempotencyKey: 'other' })).status, 'settled');
+  const ok = setup();
+  await ok.sp.paySupplier('u1', { payeeId: 'p1', amount: '10', memo: 'inv', idempotencyKey: 'a' });
+  assert.equal((await ok.sp.paySupplier('u1', { payeeId: 'p1', amount: '10', memo: 'inv', idempotencyKey: 'b' })).status, 'settled'); // deliberate second payment
+});
+
+test('crash after an unknown line keeps the batch processing, never failed', async () => {
+  const { sp, batches } = setup({ unknown: ['acme.testnet'], dbDownAt: 1 }); // line 1 outcome unknown, line 2 hits a DB error
+  await assert.rejects(sp.payBatch('u1', { items: [item('p1'), item('p2')] }), /db down/);
+  assert.equal(batches[0].status, 'processing');
 });
 
 test('removing a payee queues the Notion row removal with the account', async () => {

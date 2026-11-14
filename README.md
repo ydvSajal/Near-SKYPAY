@@ -34,7 +34,7 @@ Captured while testing on NEAR testnet. Amounts are `tUSDC`, a test token with n
 | **Set up a company on NEAR** | The owner's browser generates a key pair. SkyPay creates the company account, a vault contract, and a restricted agent account. The owner's private key never leaves the browser, and the owner buys no NEAR (the sponsor pays). |
 | **Bill a client** | Create an invoice with line items and a due date, or ask the agent. The client pays `tUSDC` to the company's receiving account with the invoice number as the transfer memo. SkyPay marks the invoice paid only after it checks the finalized NEAR transaction. |
 | **Fund the operating budget** | The owner moves money from the receiving account into the vault with an owner-signed `ft_transfer_call`. Collected money is never spendable by the agent until the owner allocates it. |
-| **Set agent limits** | Per-payment limit, per-day limit, expiry, and a supplier allow-list, all stored on the vault. The owner signs these changes. |
+| **Set agent limits** | Per-payment limit, per-day limit, expiry, and a supplier allow-list, all stored on the vault. The owner signs these changes. Removing an approved supplier or employee first revokes it on the vault (`remove_payee`). |
 | **Pay suppliers and staff** | Single payments, batch payouts (up to 25 items), and payroll from a spreadsheet. Every payment is recorded before it is sent, and a refusal from the vault is shown as-is. |
 | **Supplier bill inbox** | The owner shares a private link. A contractor submits a bill without logging in. SkyPay matches the sender to a registered supplier, flags unknown senders, changed payout accounts and possible duplicates, and the owner pays each bill once. The payout address always comes from the owner's registry, never from the bill. |
 | **Keep the books** | Invoice and payment CSV exports (exact fixed 6-decimal token amounts, no float rounding, UTC, transaction links, formula-injection protection), plus optional email receipts and a Notion projection. |
@@ -168,8 +168,9 @@ Setup is resumable. Each step persists its progress, including the encrypted key
 |---|---|---|
 | Payments go only to owner-registered suppliers | Vault allow-list (on chain) and registry lookup (API) | `payouts.test.js`, contract `a09_unlisted_recipient_refused` |
 | Over-limit or expired payments are refused | Vault `pay` | contract `a09`, `a10`, `a13`, sandbox scenario |
-| The same payment id cannot be sent twice | Vault replay check by `payment_id` and request hash; unique `PaymentAttempt.paymentId`. A retry under a new idempotency key is a new payment | `a11_same_id_same_payload_does_not_double_spend`, `bills.test.js` in-flight race |
+| The same payment id cannot be sent twice | Vault replay check by `payment_id` and request hash; unique `PaymentAttempt.paymentId`. A retry under a new key is refused while an identical payment is still unresolved | `payouts.test.js` | `a11_same_id_same_payload_does_not_double_spend`, `bills.test.js` in-flight race |
 | An unknown outcome is never resent | Reconciliation reads the vault; no resend path exists | `recovery.test.js`, `payouts.test.js` |
+| A batch is never shown as failed while a line's outcome is unknown | Batch status recomputed from persisted lines after an error | `payouts.test.js` |
 | One bill, one payment, under concurrent clicks and crash recovery | Conditional updates on the bill; deterministic payment identity | `bills.test.js` |
 | A changed payout account on a bill cannot redirect money | Payee always comes from the owner registry; the bill's account is only compared | `bills.test.js` |
 | The vault cannot be upgraded after setup | Its full-access keys are deleted; setup verifies this on chain | `provision.test.js` |
@@ -191,7 +192,7 @@ Requires Node.js 22.8+ or 24.
 ```sh
 cd agenPay/agenpay-backend
 npm ci
-npm test                      # 59 tests; database, RPC and provider doubles
+npm test                      # 62 tests; database, RPC and provider doubles
 
 cd ../agenpay-frontend
 npm ci
@@ -265,7 +266,7 @@ The same code runs at <https://near-skypay.vercel.app> (frontend, Vercel) and <h
 ## 5. Limitations (read before judging)
 
 - **Testnet only.** The backend refuses mainnet. tUSDC has no monetary value. Changing a token or RPC variable does not make this a production system.
-- **The "Pay with testnet demo wallet" button is a simulated payer.** The API mints test `tUSDC` to the sponsor and sends a real testnet `ft_transfer` (memo = invoice number) so a reviewer can pay an invoice without a wallet. The result is then verified from the chain like any other payment, and the response is flagged `simulatedPayer: true`. It exists only with the test token and is not a customer payment.
+- **The "Pay with testnet demo wallet" button is a simulated payer.** The API mints test `tUSDC` to the sponsor and sends a real testnet `ft_transfer` (memo = invoice number) so a reviewer can pay an invoice without a wallet. The result is then verified from the chain like any other payment, and the response is flagged `simulatedPayer: true`. It exists only with the test token, is limited to 5 calls per IP per hour, one at a time per invoice, and invoices up to 1000 tUSDC, and is not a customer payment.
 - **Intents is quote-only.** Cross-chain prices come from the 1Click quote API. There is no deposit address, no deposit tracking, and no refund lifecycle.
 - **Owner review of bills is an application control.** The vault enforces the allow-list, limits, expiry and no-double-pay. It does not record a separate per-bill approval, so the agent key could pay an allow-listed supplier within limits without a bill.
 - **The owner key lives in browser localStorage**, with backup and verified import as the recovery path. Losing every backup and browser means losing control of the company's accounts. A compromised server can spend up to the limits the owner has already set.
@@ -273,7 +274,7 @@ The same code runs at <https://near-skypay.vercel.app> (frontend, Vercel) and <h
 - **Not built:** owner-authorized refunds, automatic refunds, partial-payment accumulation, reminders, passkeys or social login, PDF bill extraction.
 - **Failed vault callbacks can leave funds reserved** until an operator investigates. There is no automatic override.
 - **Notion jobs for outgoing payments are not atomic.** They are queued after the payment record; if that write fails, the Notion row is missing (the payment and CSV are unaffected).
-- **Payment retries need the same key.** The vault blocks a repeated payment id, not a second business payment: clicking Pay again after a lost response creates a new payment, which the limits still bound.
+- **Duplicate protection for retries is application-level.** The vault blocks a repeated payment id. The API also refuses a new single payment while an identical one (same supplier, amount, memo) is unresolved, and the Pay button keeps one key per payment until the server answers. Once the first payment is settled or failed, paying again is treated as deliberate.
 - **External delivery is not exactly-once** for email and Notion. A timeout after the provider accepts a message can lead to a second message. The money record is never affected.
 - **Payroll lines not dispatched before a crash are not resumed automatically.** The run is shown as partial, never done.
 - **Sponsor funding is finite.** Each new company costs about 2.4 testnet NEAR from the sponsor.

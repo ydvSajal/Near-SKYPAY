@@ -22,6 +22,9 @@ const wrap = (fn) => (req, res) =>
 export function createNearRouter({ prisma, near, skypay, authenticateToken }) {
   const r = express.Router();
   const publicLimiter = rateLimit({ windowMs: 60_000, max: 20, standardHeaders: true, legacyHeaders: false });
+  // demo payer spends sponsor gas: a few per IP per hour is plenty for a reviewer
+  const demoLimiter = rateLimit({ windowMs: 60 * 60_000, max: 5, standardHeaders: true, legacyHeaders: false });
+  const demoInFlight = new Set(); // ponytail: process-local, like the provisioning lock; one instance on Render
   const pollLimiter = rateLimit({ windowMs: 60_000, max: 90, standardHeaders: true, legacyHeaders: false }); // checkout page polls every 2 s
   const me = (req) => skypay.user(req.user.id);
   const x402Base = (process.env.BASE_URL || `http://localhost:${process.env.PORT || 3001}`).replace(/[/]$/, '');
@@ -190,7 +193,8 @@ export function createNearRouter({ prisma, near, skypay, authenticateToken }) {
   r.get('/api/public/invoices/:id', pollLimiter, wrap(async (req, res) => {
     const i = await prisma.invoice.findUnique({ where: { id: req.params.id }, include: { user: true } });
     if (!i) return res.status(404).json({ error: 'invoice not found' });
-    const seller = i.seller || sellerOf(i.user); // invoices issued before profiles existed fall back to the live profile
+    // invoices issued before profiles existed fall back to the live profile; the internal source ref is never public
+    const { sourceRef: _sourceRef, ...seller } = i.seller || sellerOf(i.user);
     res.json({
       id: i.id, number: i.number, merchant: seller.name, seller, customerName: i.customerName, customerEmail: i.customerEmail,
       description: i.description, lineItems: i.lineItems.map((li) => ({ ...li, unitFormatted: formatUnits(li.unitAmount, i.decimals) })),
@@ -219,18 +223,26 @@ export function createNearRouter({ prisma, near, skypay, authenticateToken }) {
   }));
 
   // TESTNET demo payer: a real testnet transfer of TEST tokens from SkyPay's demo wallet, then verified like any other payment.
-  r.post('/api/public/invoices/:id/demo-pay', publicLimiter, wrap(async (req, res) => {
+  r.post('/api/public/invoices/:id/demo-pay', demoLimiter, wrap(async (req, res) => {
     if (!isTestToken) return res.status(404).json({ error: 'demo payer only exists on testnet with the test token' });
     const i = await prisma.invoice.findUnique({ where: { id: req.params.id } });
     if (!i || i.status !== 'pending') return res.status(409).json({ error: 'invoice not payable' });
-    const payer = near.relayer();
-    await payer.callFunctionRaw({ contractId: near.token, methodName: 'mint', args: { account_id: near.relayerId, amount: i.amount }, gas: 30_000_000_000_000n });
-    const tx = await payer.callFunctionRaw({
-      contractId: near.token, methodName: 'ft_transfer', args: { receiver_id: i.receiver, amount: i.amount, memo: i.number },
-      deposit: 1n, gas: 30_000_000_000_000n,
-    });
-    const out = await skypay.confirmInvoicePayment(i.id, { txHash: tx.transaction.hash, senderAccountId: near.relayerId });
-    res.json({ status: out.invoice.status, txHash: tx.transaction.hash, txUrl: near.explorerTx(tx.transaction.hash), payer: near.relayerId, simulatedPayer: true });
+    if (BigInt(i.amount) > BigInt(parseUnits('1000'))) return res.status(422).json({ error: 'demo payer covers invoices up to 1000 tUSDC; pay larger ones from a testnet wallet' });
+    // One demo transfer per invoice at a time: a double click must not send two transfers.
+    if (demoInFlight.has(i.id)) return res.status(409).json({ error: 'a demo payment for this invoice is already in progress' });
+    demoInFlight.add(i.id);
+    try {
+      const payer = near.relayer();
+      await payer.callFunctionRaw({ contractId: near.token, methodName: 'mint', args: { account_id: near.relayerId, amount: i.amount }, gas: 30_000_000_000_000n });
+      const tx = await payer.callFunctionRaw({
+        contractId: near.token, methodName: 'ft_transfer', args: { receiver_id: i.receiver, amount: i.amount, memo: i.number },
+        deposit: 1n, gas: 30_000_000_000_000n,
+      });
+      const out = await skypay.confirmInvoicePayment(i.id, { txHash: tx.transaction.hash, senderAccountId: near.relayerId });
+      res.json({ status: out.invoice.status, txHash: tx.transaction.hash, txUrl: near.explorerTx(tx.transaction.hash), payer: near.relayerId, simulatedPayer: true });
+    } finally {
+      demoInFlight.delete(i.id);
+    }
   }));
 
   // ----------------------------------------------------------------- exports

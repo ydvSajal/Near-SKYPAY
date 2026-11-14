@@ -67,7 +67,7 @@ npx prisma db push
 node --test --test-isolation=none test/*.test.js
 ```
 
-Expected: schema validation succeeds, database tables are created, and the current backend suite reports 59 passing tests. Tests do not prove a connection to the configured live services. The API refuses startup when JWT_SECRET is missing.
+Expected: schema validation succeeds, database tables are created, and the current backend suite reports 62 passing tests. Tests do not prove a connection to the configured live services. The API refuses startup when JWT_SECRET is missing.
 
 ## 4. Prepare native NEAR testnet infrastructure
 

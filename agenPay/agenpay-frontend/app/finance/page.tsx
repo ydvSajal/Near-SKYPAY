@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import { useAuth } from "@/lib/auth-context"
 import { authService } from "@/lib/auth"
@@ -224,6 +224,9 @@ export default function FinancePage() {
   const [payTo, setPayTo] = useState("")
   const [payAmt, setPayAmt] = useState("")
   const [payMemo, setPayMemo] = useState("")
+  // One payment intent = one idempotency key. Kept across retries until the server answers, so a click after
+  // a lost response returns the same payment instead of sending a second one.
+  const payNonce = useRef(Date.now().toString(36))
   const [payMode, setPayMode] = useState<"single" | "batch" | "import">("single")
   const [importFile, setImportFile] = useState<File | null>(null)
   const [batchLabel, setBatchLabel] = useState("")
@@ -567,8 +570,12 @@ export default function FinancePage() {
                                 owner("Allow-list payee", st.vault!, "add_payee", { payee: x.nearAccount }))}>Approve on vault</button>
                             )}
                             <button type="button" className={`${btnSecondary} h-8 px-3 text-xs`} onClick={() => { setEditId(editId === x.id ? null : x.id); setEdit({ name: x.name, email: x.email || "", notes: x.notes || "" }) }}>Edit</button>
-                            <button type="button" aria-label={`Remove ${x.name}`} className={`${btnSecondary} h-8 px-2.5 text-xs`} disabled={!!busy} onClick={() => {
-                              if (confirm(`Remove ${x.name} from SKYPay? ${x.allowListedOnChain ? "Their on-chain approval stays until you revoke it in the vault." : ""}`)) run("Remove payee", async () => { await authService.api(`/api/payees/${x.id}`, { method: "DELETE" }) })
+                            <button type="button" aria-label={`Remove ${x.name}`} className={`${btnSecondary} h-8 px-2.5 text-xs`} disabled={!!busy || (x.allowListedOnChain && !canSign)} title={x.allowListedOnChain && !canSign ? "Needs the owner key to revoke the vault approval" : undefined} onClick={() => {
+                              // Revoke on chain first (owner-signed remove_payee), so deleting the record never leaves the agent able to pay this account.
+                              if (confirm(`Remove ${x.name}? ${x.allowListedOnChain ? "This also revokes their approval on the vault, so the agent can no longer pay them." : ""}`)) run("Remove payee", async () => {
+                                if (x.allowListedOnChain) await owner("Revoke payee", st.vault!, "remove_payee", { payee: x.nearAccount })
+                                await authService.api(`/api/payees/${x.id}`, { method: "DELETE" })
+                              })
                             }}><Trash2 className="h-3.5 w-3.5" /></button>
                           </div>
                         </div>
@@ -661,8 +668,9 @@ export default function FinancePage() {
                 <F id="pay-memo" label="Memo or bill reference"><input id="pay-memo" value={payMemo} onChange={(e) => setPayMemo(e.target.value)} className={input} /></F>
                 <button type="button" disabled={!!busy || !payTo || !isAmount(payAmt)} className={btnPrimary} onClick={() => run("Supplier payment", async () => {
                   const r = await authService.api<{ payment: VaultPayment & { url: string | null } }>("/api/vault/payments", {
-                    method: "POST", body: JSON.stringify({ payeeId: payTo, amount: payAmt, memo: payMemo, idempotencyKey: `${payTo}|${payAmt}|${payMemo}|${Date.now()}` }),
+                    method: "POST", body: JSON.stringify({ payeeId: payTo, amount: payAmt, memo: payMemo, idempotencyKey: `${payTo}|${payAmt}|${payMemo}|${payNonce.current}` }),
                   })
+                  payNonce.current = Date.now().toString(36) // answered: the next click is a new, deliberate payment
                   return { url: r.payment.url || undefined, text: `Payment ${r.payment.status}` }
                 })}>
                   {busy === "Supplier payment" ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Pay

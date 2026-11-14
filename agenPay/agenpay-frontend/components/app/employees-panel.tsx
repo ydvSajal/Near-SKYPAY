@@ -85,8 +85,11 @@ export function EmployeesPanel({ employees, userId, company, vault, vaultAvailab
                       {e.allowListedOnChain ? <span className="text-xs font-medium text-success">Approved</span>
                         : <button type="button" className={`${secondary} h-8 px-3 text-xs`} disabled={!!busy || !hasKey} onClick={() => act("Approve on vault", async () => { await approve(e.nearAccount) })}>Approve on vault</button>}
                       <button type="button" className={`${secondary} h-8 px-3 text-xs`} onClick={() => { setEditId(editId === e.id ? null : e.id); setEdit({ name: e.name, role: e.role || "", email: e.email || "", salary: pay(e), notes: e.notes || "" }) }}>Edit</button>
-                      <button type="button" aria-label={`Remove ${e.name}`} className={`${secondary} h-8 px-2.5 text-xs`} disabled={!!busy} onClick={() => {
-                        if (confirm(`Remove ${e.name} from the team? Their on-chain approval stays until you revoke it in the vault.`)) act("Remove employee", async () => { await authService.api(`/api/payees/${e.id}`, { method: "DELETE" }) })
+                      <button type="button" aria-label={`Remove ${e.name}`} className={`${secondary} h-8 px-2.5 text-xs`} disabled={!!busy || (e.allowListedOnChain && !hasKey)} title={e.allowListedOnChain && !hasKey ? "Needs the owner key to revoke the vault approval" : undefined} onClick={() => {
+                        if (confirm(`Remove ${e.name} from the team?${e.allowListedOnChain ? " This also revokes their approval on the vault." : ""}`)) act("Remove employee", async () => {
+                          if (e.allowListedOnChain) await ownerAction({ userId, company, receiverId: vault, method: "remove_payee", args: { payee: e.nearAccount }, label: "Revoke employee" })
+                          await authService.api(`/api/payees/${e.id}`, { method: "DELETE" })
+                        })
                       }}><Trash2 className="h-3.5 w-3.5" /></button>
                     </div>
                   </div>
