@@ -20,6 +20,7 @@ A small agency needs to collect a client invoice and pay a contractor without gi
 4. **Update the books.** Settlement and receipt/Notion jobs commit together. CSV exports come from the database; editing a Notion page does not authorize spending or change settlement.
 5. **Allocate operating funds.** The owner explicitly funds the vault. Customer collections do not automatically become agent spending money.
 6. **Pay within policy.** The owner approves supplier accounts and sets agent limits. The native contract rejects unauthorized recipients, excessive spend, expired authority and changed-payload replays.
+7. **Receive supplier bills.** The owner shares a private inbox link. A contractor submits a bill (no login); SkyPay matches it to a registered supplier by email, flags unknown senders, changed payout details and possible duplicates, and the owner pays it through the vault. The payout account always comes from the owner's supplier registry, never from the bill. The contractor gets a private status page with the NEAR transaction link.
 
 Email and Notion need credentials for actual delivery. Without them, the outbox uses labeled fixture behavior. The complete native testnet walkthrough is in [docs/DEMO.md](docs/DEMO.md).
 
@@ -29,7 +30,9 @@ Email and Notion need credentials for actual delivery. Without them, the outbox 
 |---|---|---|
 | Invoices and email checkout | Authenticated invoice service, typed agent tool, line items, due date and stable link | Local tests pass; supplied integration transcript reports SMTP acceptance, not inbox delivery |
 | Native collection | Wallet Selector payer checkout and a labeled demo payer; invoice-specific token-event verification | Local verification tests and recorded testnet transactions; test token only |
-| Supplier payments | Separate native operating vault, owner-approved payees and restricted agent key | Contract source/direct tests and recorded testnet runs; native tests were not rerun in the latest review |
+| Supplier payments | Separate native operating vault, owner-approved payees and restricted agent key | 22 Rust unit tests + 1 sandbox test rerun on November 14 against a fresh rebuild ([evidence](evidence/contract-rebuild-20261114.txt)); recorded testnet runs |
+| Supplier bill inbox | Public submission link, registry matching, duplicate/changed-payout/unknown-sender flags, one vault payment per bill, contractor status page | 10 local tests; live testnet run on a freshly provisioned company ([evidence](evidence/bills-smoke-testnet.txt)). Owner review is an app-level control, not an on-chain per-bill approval |
+| Onboarding and key recovery | Readiness checklist from live chain reads (owner key, backup, balances, agent policy, agent gas allowance, vault storage reserve, sponsor); explicit backup step; backup import verified against the registered owner key; resumable provisioning | Provisioning resume test crashes after every chain step and checks no account is created twice; wrong-key import refused in a browser check. Not social login, passkeys or custodial recovery |
 | Sponsorship | Browser-signed owner delegate actions; sponsor-funded setup and registration | Guard tests pass; recorded testnet evidence. Requires sponsor funding; external payer fees are separate |
 | Employees and payroll | Staff records, salary defaults, preview, spreadsheet import and batch execution | Six parser tests pass. Payroll names reserve one run; batch recovery remains incomplete |
 | Notion and receipts | Durable jobs project invoices, supplier payments and dashboard data | Supplied transcript reports API acceptance; ambiguous external delivery can require manual reconciliation |
@@ -85,9 +88,9 @@ node node_modules/typescript/bin/tsc --noEmit
 node --test --test-isolation=none lib/payroll-core.test.ts
 ```
 
-**Latest observed results:** 42 backend tests, 6 payroll tests, frontend TypeScript, lint and Prisma schema validation passed. Backend tests use provider/RPC/database doubles; they are not live-payment proof. Installation from an empty cache was not independently repeated in that review. Runtime was Node v26.3.1; the documented Node 22.8+/24 setup was not separately tested.
+**Latest observed results (November 14, 2026):** 54 backend tests, frontend TypeScript and lint passed. Backend tests use provider/RPC/database doubles; they are not live-payment proof. Runtime was Node v26.3.1; the documented Node 22.8+/24 setup was not separately tested.
 
-The production build stopped at runner `spawn EPERM`. Cargo was unavailable, so Rust unit/sandbox execution and source-to-WASM rebuilding remain unverified in that environment. Both committed WASM files matched their checksum manifest. See [full validation](docs/VALIDATION.md) and [captured tests](evidence/recheck-backend-tests.txt).
+Contracts (Linux/WSL, Rust 1.99, cargo-near 0.23): `bash contracts/build-and-test.sh` rebuilds both contracts, runs 22 vault unit tests and the sandbox scenario, and prints artifact hashes. All passed on November 14; the rebuilt vault WASM (sha256 `ee38669f…`) replaced `near-artifacts/skypay_vault.wasm` and a company provisioned afterwards reported the matching on-chain code hash. Deployed vaults are immutable and keep the code they were created with. See [full validation](docs/VALIDATION.md) and [contract evidence](evidence/contract-rebuild-20261114.txt).
 
 ## Run the application
 
@@ -102,7 +105,7 @@ The local API defaults to port **3001**, and the frontend to **3000**. Start the
 | Published demo endpoint | Purpose |
 |---|---|
 | [near-skypay.vercel.app](https://near-skypay.vercel.app) | Frontend |
-| [API health](https://skypay-near-api.onrender.com/health) | API liveness; not independent database or chain readiness proof |
+| [API health](https://skypay-near-api.onrender.com/health) | Queries the database: 200 when Postgres answers, 503 `degraded` when it does not. Not a chain-readiness proof |
 
 These are previously published endpoints; current uptime was not independently verified in the latest review. Free hosting can sleep, delaying API responses and pausing workers. Do not repeatedly submit a payment because a request is slow.
 
@@ -110,11 +113,14 @@ These are previously published endpoints; current uptime was not independently v
 
 - **No real-money or cross-chain execution.** The native backend refuses mainnet. Changing an RPC/token variable does not complete a mainnet migration. Intents previews cannot pay testnet invoices.
 - **Unknown is not failed.** Recovery queries existing vault payments and never blindly resends. A failed callback can leave funds reserved. Reconcile before any intentional replacement payment.
-- **Payroll names are one-shot identifiers.** A company/run-name pair is reserved before dispatch, including failed or uncertain runs. A different name intentionally creates new payments. Batch lines and aggregate status recovery are incomplete.
+- **Payroll names are one-shot identifiers.** A company/run-name pair is reserved before dispatch, including failed or uncertain runs. A different name intentionally creates new payments. The recovery worker now recomputes a run's status from its persisted lines (a run whose lines do not add up to its total is never shown as done), but items never dispatched before a crash are not resumed automatically.
+- **Supplier bill approval is off-chain.** Review and the Pay click are enforced by SkyPay's API. The vault enforces allow-list, limits, expiry and no-double-pay; it does not record per-bill owner approval, so the agent key could still pay an allow-listed supplier within limits. Binding approval on chain would need a new vault version.
+- **Finite agent gas allowance.** The agent's pay-only key has a fixed NEAR gas allowance (0.15 NEAR at setup). Readiness shows what is left; sending NEAR to the agent account does not refill it, and a key-replacement workflow is not implemented yet.
+- **Vault storage reserve.** Each payment record stays in contract storage for replay protection. New vaults cap `payment_id` and `invoice_ref` at 64 bytes and refuse a payment with a clear message when the reserve is low; anyone can top it up with a plain NEAR transfer. Readiness shows an estimate of records left.
 - **External delivery is not exactly-once.** Crashed running jobs are quarantined; SMTP/Notion acceptance followed by a timeout may need operator review. Provider acceptance is not proof an email arrived or was read.
 - **Keys and privacy need care.** The owner key is stored in browser localStorage with backup/import. The backend holds an encrypted restricted agent key. Public chains expose transfer information, and anyone holding a public invoice URL can read its invoice details.
 - **Sponsor controls are limited.** Rate limits and replay caches are process-local. Durable cost budgets, nonce coordination and measured operational fees need more work.
-- **Accounting is bounded.** Refund automation, accumulated partial-payment collection and reminder automation are missing. The CSV merchant-fee value is fixed at zero, not an audited gas-cost ledger.
+- **Accounting is bounded.** Owner-authorized invoice refunds are not implemented (collections sit in the owner-controlled receiving account, and a vault withdrawal is not a customer refund). Refund automation, accumulated partial-payment collection and reminder automation are missing. The CSV merchant-fee value is fixed at zero, not an audited gas-cost ledger.
 
 For operations and troubleshooting, use [docs/OPERATIONS.md](docs/OPERATIONS.md). See [the implementation plan](docs/IMPLEMENTATION_PLAN.md) for remaining release work; this is not a production-readiness claim.
 
@@ -130,7 +136,7 @@ For operations and troubleshooting, use [docs/OPERATIONS.md](docs/OPERATIONS.md)
 | [Audit](docs/AUDIT.md) / [Competitors](docs/COMPETITORS.md) | Findings and focused comparison |
 | [Plan](docs/IMPLEMENTATION_PLAN.md) / [Migration](MIGRATION.md) | Priorities and old-to-new decisions |
 
-Source: `contracts/vault` is the policy contract; `contracts/test-ft` is the test token. Backend code is in `agenPay/agenpay-backend` (`server.js`, `lib/skypay.js`, `lib/near`, `lib/outbox.js`, `lib/reconciliation.js`, Prisma schema and scripts). Frontend code is in `agenPay/agenpay-frontend`; Finance is the owner workspace and `/invoice/[id]` is public checkout. `evidence/` contains transcripts; `docs/legacy/` is historical, not current setup guidance.
+Source: `contracts/vault` is the policy contract; `contracts/test-ft` is the test token. Backend code is in `agenPay/agenpay-backend` (`server.js`, `lib/skypay.js`, `lib/near`, `lib/outbox.js`, `lib/reconciliation.js`, Prisma schema and scripts). Frontend code is in `agenPay/agenpay-frontend`; Finance is the owner workspace, `/invoice/[id]` is public checkout, and `/bills/submit/[token]` and `/bills/status/[token]` are the contractor bill pages (`lib/bills.js` on the backend). `evidence/` contains transcripts; `docs/legacy/` is historical, not current setup guidance.
 
 ## Hackathon scope and reuse
 

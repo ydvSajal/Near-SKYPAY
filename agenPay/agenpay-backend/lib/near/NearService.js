@@ -180,54 +180,118 @@ export class NearService {
     return res.transaction.hash;
   }
 
-  async provision({ slug, ownerPublicKey }) {
+  /** Public keys on an account, or [] when the account does not exist. */
+  async accessKeys(id) {
+    try {
+      const r = await this.rpc('query', { request_type: 'view_access_key_list', finality: 'final', account_id: id });
+      return r.keys.map((k) => ({ publicKey: k.public_key, permission: k.access_key.permission }));
+    } catch {
+      return [];
+    }
+  }
+
+  /** view_account: NEAR balance and storage usage, or null. */
+  async accountInfo(id) {
+    try {
+      return await this.rpc('query', { request_type: 'view_account', finality: 'final', account_id: id });
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Resumable provisioning. Every secret is generated and persisted (encrypted, via `save`) BEFORE the account
+   * that uses it is created, and every step first checks chain state, so a retry after a crash continues
+   * the SAME accounts instead of creating a second set. `state` is the persisted progress (or null for a new setup).
+   */
+  async provision({ slug, ownerPublicKey, state = null, save = async () => {} }) {
     const sfx = this.cfg.suffix; // top-level names, created + funded by the sponsor (owner buys no NEAR)
     const company = `${slug}.${sfx}`;
     const vault = `${slug}-vault.${sfx}`;
     const agent = `${slug}-agent.${sfx}`;
-    for (const id of [company, vault, agent]) {
-      if (id.length > 64) throw new Error('name too long');
-      if (await this.accountExists(id)) throw new Error(`${id} already exists`);
-    }
     const NEAR = 10n ** 24n;
     const log = [];
+    let s = state;
+    if (!s) {
+      for (const id of [company, vault, agent]) {
+        if (id.length > 64) throw new Error('name too long');
+        if (await this.accountExists(id)) throw new Error(`${id} already exists`);
+      }
+      s = {
+        slug, ownerPublicKey,
+        vaultKeyEnc: this.encrypt(KeyPair.fromRandom('ed25519').toString()),
+        agentFullEnc: this.encrypt(KeyPair.fromRandom('ed25519').toString()),
+        agentFcEnc: this.encrypt(KeyPair.fromRandom('ed25519').toString()),
+      };
+      await save(s);
+    } else if (s.ownerPublicKey !== ownerPublicKey) {
+      throw Object.assign(new Error('an interrupted setup exists for a different owner key; restore that key backup to resume'), { status: 409 });
+    }
+    const pub = (enc) => KeyPair.fromString(this.decrypt(enc)).getPublicKey().toString();
+    const step = async (name, fn) => {
+      if (s.done?.includes(name)) return;
+      await fn();
+      s = { ...s, done: [...(s.done || []), name] };
+      await save(s);
+    };
 
     // 1. company account carries the owner's browser-held key (we never see the secret)
-    await this.createNamedAccount(company, ownerPublicKey, NEAR / 5n);
-    log.push({ kind: 'account_create', detail: company });
+    await step('company', async () => {
+      if (await this.accountExists(company)) {
+        const keys = await this.accessKeys(company);
+        if (!keys.some((k) => k.publicKey === ownerPublicKey)) throw new Error(`${company} exists without the owner key`);
+      } else await this.createNamedAccount(company, ownerPublicKey, NEAR / 5n);
+      log.push({ kind: 'account_create', detail: company });
+    });
 
     // 2. vault: deploy contract, init, register on token, then delete the only key (immutable)
-    const vaultKp = KeyPair.fromRandom('ed25519');
-    const wasm = fs.readFileSync(path.join(ARTIFACTS, 'skypay_vault.wasm'));
-    // storage staking: ~1 NEAR per 100 KB of code, plus headroom for payment records
-    const vaultFunding = BigInt(wasm.length) * 10n ** 19n + (NEAR * 3n) / 10n; // 1e19 yocto per byte
-    await this.createNamedAccount(vault, vaultKp.getPublicKey().toString(), vaultFunding);
-    const v = this.account(vault, vaultKp.toString());
-    await v.deployContract(wasm);
-    await v.callFunctionRaw({ contractId: vault, methodName: 'new', args: { owner: company, token: this.token }, gas: 30n * TGAS });
-    await v.callFunctionRaw({
-      contractId: this.token, methodName: 'storage_deposit', args: { account_id: vault, registration_only: true },
-      deposit: 20_000_000_000_000_000_000_000n, gas: 30n * TGAS,
+    await step('vault', async () => {
+      const vaultSecret = this.decrypt(s.vaultKeyEnc);
+      const vaultPub = pub(s.vaultKeyEnc);
+      const wasm = fs.readFileSync(path.join(ARTIFACTS, 'skypay_vault.wasm'));
+      // storage staking: ~1 NEAR per 100 KB of code, plus headroom for payment records
+      const vaultFunding = BigInt(wasm.length) * 10n ** 19n + (NEAR * 3n) / 10n; // 1e19 yocto per byte
+      if (!(await this.accountExists(vault))) await this.createNamedAccount(vault, vaultPub, vaultFunding);
+      const keys = await this.accessKeys(vault);
+      const initialized = await this.vaultState(vault).then((x) => x?.owner === company, () => false);
+      if (keys.some((k) => k.publicKey === vaultPub)) {
+        const v = this.account(vault, vaultSecret);
+        if (!initialized) {
+          await v.deployContract(wasm);
+          await v.callFunctionRaw({ contractId: vault, methodName: 'new', args: { owner: company, token: this.token }, gas: 30n * TGAS });
+        }
+        await this.registerOnToken(vault);
+        await v.deleteKey(vaultPub); // no key left: code cannot change, funds only move via contract rules
+      } else if (!initialized || keys.length) {
+        throw new Error(`${vault} is in an unexpected state (keys=${keys.length}, initialized=${initialized}); not reusing it`);
+      } else await this.registerOnToken(vault); // key already deleted before the crash: only finish registration
+      log.push({ kind: 'account_create', detail: `${vault} (vault contract deployed, all keys deleted)` });
     });
-    await v.deleteKey(vaultKp.getPublicKey().toString()); // no key left: code cannot change, funds only move via contract rules
-    log.push({ kind: 'account_create', detail: `${vault} (vault contract deployed, all keys deleted)` });
 
     // 3. agent account with a function-call-only key
-    const agentFull = KeyPair.fromRandom('ed25519');
-    await this.createNamedAccount(agent, agentFull.getPublicKey().toString(), NEAR / 5n);
-    const agentFc = KeyPair.fromRandom('ed25519');
-    const a = this.account(agent, agentFull.toString());
-    await a.addFunctionCallAccessKey({
-      publicKey: agentFc.getPublicKey().toString(), contractId: vault, methodNames: ['pay'], allowance: 150_000_000_000_000_000_000_000n,
+    await step('agent', async () => {
+      const fullPub = pub(s.agentFullEnc);
+      const fcPub = pub(s.agentFcEnc);
+      if (!(await this.accountExists(agent))) await this.createNamedAccount(agent, fullPub, NEAR / 5n);
+      let keys = await this.accessKeys(agent);
+      if (!keys.some((k) => k.publicKey === fcPub)) {
+        if (!keys.some((k) => k.publicKey === fullPub)) throw new Error(`${agent} exists without SkyPay's keys; not reusing it`);
+        await this.account(agent, this.decrypt(s.agentFullEnc)).addFunctionCallAccessKey({
+          publicKey: fcPub, contractId: vault, methodNames: ['pay'], allowance: 150_000_000_000_000_000_000_000n,
+        });
+        keys = await this.accessKeys(agent);
+      }
+      if (keys.some((k) => k.publicKey === fullPub)) await this.account(agent, this.decrypt(s.agentFullEnc)).deleteKey(fullPub);
+      log.push({ kind: 'account_create', detail: `${agent} (function-call key: ${vault}.pay only)` });
     });
-    await a.deleteKey(agentFull.getPublicKey().toString());
-    log.push({ kind: 'account_create', detail: `${agent} (function-call key: ${vault}.pay only)` });
 
     // 4. receiving account must be registered on the token to receive invoice payments
-    await this.registerOnToken(company);
-    log.push({ kind: 'storage_deposit', detail: `${company} registered on ${this.token}` });
+    await step('register', async () => {
+      await this.registerOnToken(company);
+      log.push({ kind: 'storage_deposit', detail: `${company} registered on ${this.token}` });
+    });
 
-    return { company, vault, agent, agentKeyEnc: this.encrypt(agentFc.toString()), log };
+    return { company, vault, agent, agentKeyEnc: s.agentFcEnc, log };
   }
 
   encrypt(text) {

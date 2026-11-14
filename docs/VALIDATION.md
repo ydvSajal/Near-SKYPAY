@@ -2,6 +2,23 @@
 
 Review date: November 14, 2026 IST; runtime clock November 13, 2026 20:04 UTC. Branch main, base HEAD 0f34799. Changes are uncommitted; the tree also contains concurrent user work. No claim that this review deployed or executed real payments.
 
+## Pre-submission run (November 14, 2026, ~08:00 UTC, fresh execution)
+
+Changes in this run: supplier bill inbox, readiness checklist, verified key import, explicit backup step, resumable provisioning, DB-backed health check, batch aggregate recovery, and vault hardening (64-byte `payment_id`/`invoice_ref` caps, explicit storage-reserve refusal).
+
+| Command | Actual result |
+|---|---|
+| Backend `node --test --test-isolation=none test/*.test.js` | **54 pass, 0 fail**; [output](../evidence/backend-tests-20261114.txt). New: `bills.test.js` (10), `provision.test.js` (2), recovery worker batch refresh |
+| Frontend `node --test --test-isolation=none lib/payroll-core.test.ts` | **6 pass, 0 fail** |
+| Frontend `npx tsc --noEmit`, `npx eslint .` | Exit 0, no diagnostics |
+| Frontend `npm run build` | **Succeeded** (dev server stopped first; the earlier EPERM was a locked `.next`) |
+| `bash contracts/build-and-test.sh` (WSL Ubuntu 24.04, Rust 1.99.1, cargo-near 0.23.0) | **22 unit + 1 sandbox pass**; vault wasm sha256 `ee38669f68d72b433db0a5e4c6b6929fdbb42109887af71828b9876d0a2483af`, now in `near-artifacts/` and SHA256SUMS; [output](../evidence/contract-rebuild-20261114.txt) |
+| `node scripts/bills-smoke.mjs` (local API + Postgres, NEAR testnet) | Fresh company provisioned on the rebuilt wasm (on-chain code hash `H2uuyHMydphkNWQJynPrbvDcB5A67wuo9sHhQat2dbtA` = the build's bs58 hash); bill paid once to the registered supplier; repeat click not resent; changed payout account flagged and ignored; unknown sender refused; duplicate refused; other company sees nothing; [transcript](../evidence/bills-smoke-testnet.txt) |
+| `GET /health` (local) | 200 with `database: connected` from a real `SELECT 1` |
+| Browser check (Chrome, local) | Finance readiness rendered from live status; random wrong owner key refused with nothing stored; bill status and submit pages rendered |
+
+Not done in this run: Postgres failure injection for `/health`, a real mid-provisioning crash on testnet, Notion/SMTP delivery for bill payouts, and a reproducible (Docker) cargo-near build.
+
 ## Latest recheck (commit 4bf6e21 plus working tree)
 
 This follow-up inspected the new invoice-memo binding and supplied integration transcript. It preserved the two pre-existing edits to frontend payroll-core files. The prior review below and supplied testnet/SMTP/Notion logs are historical evidence; this follow-up did not send communications, use a live database or sign transactions.

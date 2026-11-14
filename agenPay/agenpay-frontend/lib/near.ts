@@ -27,15 +27,43 @@ export async function ensureOwnerKey(userId: string): Promise<{ publicKey: strin
   return { publicKey: kp.getPublicKey().toString(), secret }
 }
 
-export function importOwnerKey(userId: string, secret: string) {
-  if (!/^ed25519:[1-9A-HJ-NP-Za-km-z]{60,100}$/.test(secret.trim())) throw new Error("Not an ed25519 secret key")
-  localStorage.setItem(keyName(userId), secret.trim())
+/** Public key of a stored/typed secret, or null if it is not a valid ed25519 secret. */
+export async function publicKeyOf(secret: string | null): Promise<string | null> {
+  if (!secret) return null
+  try {
+    const { KeyPair } = await import("near-api-js")
+    return KeyPair.fromString(secret.trim() as `ed25519:${string}`).getPublicKey().toString()
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Restore an owner key from a backup (the whole backup file text or just the key).
+ * Refused BEFORE it is stored when it is not the company's registered owner key, so a wrong file
+ * can never replace a working key or fail later at signing time.
+ */
+export async function importOwnerKey(userId: string, text: string, expectedPublicKey: string | null) {
+  const secret = text.match(/ed25519:[1-9A-HJ-NP-Za-km-z]{60,100}/)?.[0]
+  if (!secret) throw new Error("No ed25519 secret key found. Paste the key or the whole backup file.")
+  const pub = await publicKeyOf(secret)
+  if (!pub) throw new Error("That key could not be read.")
+  if (expectedPublicKey && pub !== expectedPublicKey) {
+    throw new Error(`This key does not belong to this company (its public key is ${pub.slice(0, 20)}…, the company's owner key is ${expectedPublicKey.slice(0, 20)}…). Nothing was changed.`)
+  }
+  localStorage.setItem(keyName(userId), secret)
+}
+
+const backupName = (userId: string) => `skypay_owner_backup_saved_${userId}`
+export function backupSaved(userId: string): boolean {
+  try { return localStorage.getItem(backupName(userId)) === "1" } catch { return false }
 }
 
 /** Save the browser-held owner key as a text file. Returns false when no key is stored. */
 export function downloadOwnerKeyBackup(userId: string, company: string | null): boolean {
   const secret = getStoredOwnerKey(userId)
   if (!secret) return false
+  try { localStorage.setItem(backupName(userId), "1") } catch { /* private mode: reminder just stays visible */ }
   const blob = new Blob(
     [`SkyPay company owner key for ${company}\nKeep this file private. Anyone with it controls the company account.\n\n${secret}\n`],
     { type: "text/plain" },

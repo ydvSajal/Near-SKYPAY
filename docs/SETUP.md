@@ -141,13 +141,11 @@ The complete backend examples are [here](../agenPay/agenpay-backend/.env.example
 In Linux/WSL with Rust and the target installed, from the repository root:
 
 ```sh
-cd contracts
 rustup target add wasm32-unknown-unknown
-cargo test -p skypay-vault --lib
-cargo build --release --target wasm32-unknown-unknown
-cargo test -p skypay-vault --test sandbox
+cargo install cargo-near   # 0.23 was used
+bash contracts/build-and-test.sh
 ```
 
-The sandbox test reads WASM from `contracts/target/wasm32-unknown-unknown/release/`; build both workspace contracts before running it. The backend deploys artifacts from `agenPay/agenpay-backend/near-artifacts/`. A source rebuild does not automatically replace those files or update deployed immutable vaults. Inspect hashes and review artifact replacement separately. The latest review could verify the committed manifest only, not reproduce a Rust build.
+The script builds both contracts with cargo-near (optimized WASM; a plain `cargo build` produces a ~370 KB vault that costs more storage), copies them to `contracts/target/wasm32-unknown-unknown/release/` for the sandbox test, runs the 22 unit tests and the sandbox scenario, and prints sha256 hashes. The backend deploys artifacts from `agenPay/agenpay-backend/near-artifacts/`; copying a rebuilt vault there (and updating SHA256SUMS) affects only companies provisioned afterwards, because deployed vaults are immutable. On November 14 this passed in WSL Ubuntu 24.04 and the rebuilt vault was installed (see VALIDATION).
 
 Continue with the [demo](DEMO.md) or [operations guide](OPERATIONS.md).

@@ -80,10 +80,13 @@ test('recovery keeps absent payments unknown and rejects mismatched chain eviden
 
 test('restart worker reconciles persisted attempts and never dispatches', async () => {
   const calls = [];
-  const worker = new ReconciliationWorker({ prisma: { paymentAttempt: { findMany: async () => [{ id: 'a', userId: 'u' }] } },
-    skypay: { reconcile: async (...args) => calls.push(args), paySupplier: () => assert.fail('resend') } });
+  const worker = new ReconciliationWorker({ prisma: {
+    paymentAttempt: { findMany: async () => [{ id: 'a', userId: 'u' }] },
+    payoutBatch: { findMany: async () => [{ id: 'b', userId: 'u' }] },
+  },
+  skypay: { reconcile: async (...args) => calls.push(args), refreshBatch: async (...args) => calls.push(['batch', ...args]), paySupplier: () => assert.fail('resend') } });
   assert.equal(await worker.runOnce(), 1);
-  assert.deepEqual(calls, [['u', 'a']]);
+  assert.deepEqual(calls, [['u', 'a'], ['batch', 'u', 'b']]); // stale runs are recomputed, nothing is dispatched
 });
 
 test('expired outbox claims are quarantined, never resent after ambiguous acceptance', async () => {

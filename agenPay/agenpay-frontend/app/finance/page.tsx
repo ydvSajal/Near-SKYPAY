@@ -4,14 +4,16 @@ import { useCallback, useEffect, useState } from "react"
 import Link from "next/link"
 import { useAuth } from "@/lib/auth-context"
 import { authService } from "@/lib/auth"
-import { ensureOwnerKey, getStoredOwnerKey, importOwnerKey, ownerAction, toBaseUnits, fromBaseUnits, downloadOwnerKeyBackup } from "@/lib/near"
+import { ensureOwnerKey, getStoredOwnerKey, importOwnerKey, ownerAction, toBaseUnits, fromBaseUnits, downloadOwnerKeyBackup, publicKeyOf, backupSaved } from "@/lib/near"
+import { ReadinessPanel } from "@/components/app/readiness"
+import { BillsPanel } from "@/components/app/bills-panel"
 import { AppHeader } from "@/components/app/app-header"
 import { StatusPill } from "@/components/app/status"
 import { BusinessForm } from "@/components/app/business-form"
 import { PayrollPicker, PayrollPreview } from "@/components/app/payroll-import"
 import { EmployeesPanel } from "@/components/app/employees-panel"
 import {
-  AlertCircle, ArrowRight, Briefcase, Building2, CheckCircle2, Download, ExternalLink, FileText, KeyRound, Loader2, Plus, Send, ShieldCheck, Trash2, Users, Vault, X,
+  AlertCircle, ArrowRight, Briefcase, Building2, CheckCircle2, Download, ExternalLink, FileText, Inbox, KeyRound, Loader2, Plus, Send, ShieldCheck, Trash2, Users, Vault, X,
 } from "lucide-react"
 
 // ---------------------------------------------------------------- types
@@ -21,6 +23,10 @@ interface NearStatus {
   company: string | null; vault: string | null; agent: string | null; ownerPublicKey: string | null
   companyBalance?: string; vaultAvailable?: string; vaultReserved?: string; agentPolicy?: AgentPolicy | null
   links?: { company: string; vault: string; agent: string }
+  setupInProgress?: { ownerPublicKey: string; done: string[] } | null
+  agentKey?: { present: boolean; allowanceNear: string | null; low: boolean }
+  vaultStorage?: { freeNear: string; approxPaymentsLeft: string }
+  sponsor?: { account: string; balanceNear: string; low: boolean } | null
 }
 interface Payee { id: string; name: string; email: string | null; notes: string | null; nearAccount: string; allowListedOnChain: boolean; kind: string; role: string | null; salary: string | null }
 interface VaultPayment { id: string; paymentId: string; recipient: string; amountFormatted: string; status: string; error: string | null; url: string | null; createdAt: string; batchId: string | null; memo: string | null }
@@ -75,6 +81,7 @@ const TABS = [
   { id: "vault", label: "Vault", does: "Agent budget and limits", icon: Vault },
   { id: "employees", label: "Employees", does: "Your team and payroll", icon: Briefcase },
   { id: "payees", label: "Suppliers", does: "Vendors you pay", icon: Users },
+  { id: "bills", label: "Supplier bills", does: "Bills contractors sent you", icon: Inbox },
   { id: "pay", label: "Supplier payouts", does: "Pay one or many vendors", icon: Send },
   { id: "company", label: "Company", does: "Details on your invoices", icon: Building2 },
 ]
@@ -99,6 +106,8 @@ export default function FinancePage() {
   const [busy, setBusy] = useState<string | null>(null)
   const [msg, setMsg] = useState<{ ok: boolean; text: string; url?: string } | null>(null)
   const [hasKey, setHasKey] = useState(false)
+  const [keyPub, setKeyPub] = useState<string | null>(null) // public key of the key stored in this browser
+  const [backedUp, setBackedUp] = useState(false)
   const [keyInput, setKeyInput] = useState("")
 
   const load = useCallback(async () => {
@@ -121,7 +130,10 @@ export default function FinancePage() {
 
   const reload = useCallback(() => {
     if (!user) return
-    setHasKey(!!getStoredOwnerKey(user.id))
+    const stored = getStoredOwnerKey(user.id)
+    setHasKey(!!stored)
+    setBackedUp(backupSaved(user.id))
+    publicKeyOf(stored).then(setKeyPub)
     load().catch((e) => setLoadError(e instanceof Error ? e.message : "Could not load your finance data."))
   }, [user, load])
 
@@ -175,6 +187,7 @@ export default function FinancePage() {
   const [days, setDays] = useState("30")
   const [payeeName, setPayeeName] = useState("")
   const [payeeAcct, setPayeeAcct] = useState("")
+  const [payeeEmail, setPayeeEmail] = useState("")
   const [payTo, setPayTo] = useState("")
   const [payAmt, setPayAmt] = useState("")
   const [payMemo, setPayMemo] = useState("")
@@ -229,6 +242,9 @@ export default function FinancePage() {
   const u = (v?: string | null) => Number(fromBaseUnits(v || "0")).toFixed(2) // display only; exact values in CSV
   const p = st.agentPolicy
   const tokenShort = st.isTestToken ? "tUSDC" : "USDC"
+  // A stored key only counts if it is the company's registered owner key.
+  const keyState: "ok" | "missing" | "wrong" = !hasKey ? "missing" : keyPub && st.ownerPublicKey && keyPub !== st.ownerPublicKey ? "wrong" : "ok"
+  const canSign = keyState === "ok"
   const lineTotal = lines.reduce((a, l) => a + Number(l.quantity || 0) * Number(l.unitPrice || 0), 0)
 
   return (
@@ -285,15 +301,37 @@ export default function FinancePage() {
                 className={btnPrimary}
                 onClick={() => run("Company setup", async () => {
                   const { publicKey } = await ensureOwnerKey(user.id)
+                  if (st.setupInProgress && st.setupInProgress.ownerPublicKey !== publicKey) {
+                    throw new Error("An interrupted setup was started with a different owner key. Import that key backup below, then resume.")
+                  }
                   setHasKey(true)
+                  setKeyPub(publicKey)
                   const r = await authService.api<{ company: string }>("/api/near/provision", { method: "POST", body: JSON.stringify({ publicKey }) })
                   return { text: `Company account ${r.company} created. Download your key backup next.` }
                 })}
               >
-                {busy === "Company setup" ? <><Loader2 className="h-4 w-4 animate-spin" /> Creating accounts (about 30s)</> : "Create company NEAR account"}
+                {busy === "Company setup" ? <><Loader2 className="h-4 w-4 animate-spin" /> Creating accounts (about 30s)</> : st.setupInProgress ? "Resume company setup" : "Create company NEAR account"}
               </button>
               {busy === "Company setup" && <p className="text-sm text-muted-foreground">Keep this tab open.</p>}
             </div>
+            {st.setupInProgress && (
+              <div className="grid gap-2 rounded-lg border border-warning/40 bg-warning/5 p-4 text-sm">
+                <p className="font-medium">A previous setup was interrupted{st.setupInProgress.done.length ? ` after: ${st.setupInProgress.done.join(", ")}` : ""}.</p>
+                <p className="text-muted-foreground">Resuming continues the same accounts; nothing is created twice. It must use the owner key it started with{keyPub && keyPub !== st.setupInProgress.ownerPublicKey ? ", which is NOT the key in this browser. Import that key backup:" : "."}</p>
+                {keyPub !== st.setupInProgress.ownerPublicKey && (
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <input aria-label="Owner key backup" value={keyInput} onChange={(e) => setKeyInput(e.target.value)} placeholder="ed25519:... or paste the backup file" className={`${input} font-mono`} autoComplete="off" spellCheck={false} />
+                    <button type="button" className={btnSecondary} onClick={async () => {
+                      try {
+                        await importOwnerKey(user.id, keyInput, st.setupInProgress!.ownerPublicKey)
+                        setHasKey(true); setKeyPub(st.setupInProgress!.ownerPublicKey); setKeyInput("")
+                        setMsg({ ok: true, text: "Key verified and imported. You can resume setup." })
+                      } catch (e) { setMsg({ ok: false, text: e instanceof Error ? e.message : "Invalid key" }) }
+                    }}>Import key</button>
+                  </div>
+                )}
+              </div>
+            )}
           </Section>
         ) : (
           <>
@@ -328,27 +366,38 @@ export default function FinancePage() {
               ))}
             </dl>
 
-            {!hasKey && (
-              <div className="grid gap-3 rounded-xl border border-warning/40 bg-warning/5 p-5">
+            <ReadinessPanel
+              isTestToken={st.isTestToken} tokenShort={tokenShort} keyState={keyState} backupSaved={backedUp}
+              companyBalance={Number(fromBaseUnits(st.companyBalance || "0"))} vaultAvailable={Number(fromBaseUnits(st.vaultAvailable || "0"))}
+              agentPolicy={st.agentPolicy} agentKey={st.agentKey} vaultStorage={st.vaultStorage} sponsor={st.sponsor}
+            />
+
+            {keyState !== "ok" && (
+              <div className={`grid gap-3 rounded-xl border p-5 ${keyState === "wrong" ? "border-destructive/40 bg-destructive/5" : "border-warning/40 bg-warning/5"}`}>
                 <div className="flex gap-3">
-                  <KeyRound className="mt-0.5 h-5 w-5 shrink-0 text-warning" />
+                  <KeyRound className={`mt-0.5 h-5 w-5 shrink-0 ${keyState === "wrong" ? "text-destructive" : "text-warning"}`} />
                   <div>
-                    <p className="font-medium">Owner key is not in this browser</p>
-                    <p className="mt-0.5 text-sm text-muted-foreground">Import your key backup to fund the vault, change limits or approve payees from here.</p>
+                    <p className="font-medium">{keyState === "wrong" ? "The key in this browser is not this company's owner key" : "Owner key is not in this browser"}</p>
+                    <p className="mt-0.5 text-sm text-muted-foreground">Restore from your backup file to fund the vault, change limits or approve suppliers. SKYPay checks the key against the company&apos;s registered owner key ({st.ownerPublicKey?.slice(0, 20)}…) before saving it; a wrong key is refused.</p>
                   </div>
                 </div>
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-                  <F id="keyimp" label="Owner key" className="flex-1">
+                  <F id="keyimp" label="Owner key or backup file text" className="flex-1">
                     <input id="keyimp" value={keyInput} onChange={(e) => setKeyInput(e.target.value)} placeholder="ed25519:..." className={`${input} font-mono`} autoComplete="off" spellCheck={false} />
                   </F>
-                  <button type="button" className={btnSecondary} onClick={() => {
+                  <label className={`${btnSecondary} cursor-pointer`}>
+                    Choose backup file
+                    <input type="file" accept=".txt,text/plain" className="sr-only" onChange={async (e) => { const f = e.target.files?.[0]; if (f) setKeyInput(await f.text()) }} />
+                  </label>
+                  <button type="button" className={btnPrimary} disabled={!keyInput.trim()} onClick={async () => {
                     try {
-                      importOwnerKey(user.id, keyInput)
+                      await importOwnerKey(user.id, keyInput, st.ownerPublicKey)
                       setHasKey(true)
+                      setKeyPub(st.ownerPublicKey)
                       setKeyInput("")
-                      setMsg({ ok: true, text: "Owner key imported into this browser." })
+                      setMsg({ ok: true, text: "Owner key verified against the company and imported into this browser." })
                     } catch (e) { setMsg({ ok: false, text: e instanceof Error ? e.message : "Invalid key" }) }
-                  }}>Import key</button>
+                  }}>Verify and import</button>
                 </div>
               </div>
             )}
@@ -384,7 +433,7 @@ export default function FinancePage() {
                       return { url: r.url, text: "Minted 100 tUSDC (testnet test token, no value) to your receiving account" }
                     })}>Get 100 test tUSDC</button>
                   )}
-                  <button type="button" className={btnSecondary} disabled={!hasKey} onClick={() => downloadOwnerKeyBackup(user.id, st.company)}>
+                  <button type="button" className={btnSecondary} disabled={!canSign} onClick={() => setBackedUp(downloadOwnerKeyBackup(user.id, st.company))}>
                     <Download className="h-4 w-4" /> Owner key backup
                   </button>
                 </div>
@@ -394,7 +443,7 @@ export default function FinancePage() {
                     <F id="fund" label={`Fund vault (${tokenShort})`} hint="Moves money from your receiving account into the vault." className="flex-1">
                       <input id="fund" inputMode="decimal" value={fund} onChange={(e) => setFund(e.target.value)} className={`${input} tabular`} />
                     </F>
-                    <button type="button" disabled={!!busy || !hasKey || !isAmount(fund)} className={btnPrimary} onClick={() => run("Fund vault", () =>
+                    <button type="button" disabled={!!busy || !canSign || !isAmount(fund)} className={btnPrimary} onClick={() => run("Fund vault", () =>
                       owner("Fund vault", st.token, "ft_transfer_call", { receiver_id: st.vault, amount: toBaseUnits(fund), msg: "fund" }, BigInt(1), 100))}>
                       Fund
                     </button>
@@ -403,7 +452,7 @@ export default function FinancePage() {
                     <F id="withdraw" label={`Withdraw (${tokenShort})`} hint="Returns unspent vault money to your receiving account." className="flex-1">
                       <input id="withdraw" inputMode="decimal" value={withdraw} onChange={(e) => setWithdraw(e.target.value)} className={`${input} tabular`} />
                     </F>
-                    <button type="button" disabled={!!busy || !hasKey || !isAmount(withdraw)} className={btnSecondary} onClick={() => run("Withdraw", () =>
+                    <button type="button" disabled={!!busy || !canSign || !isAmount(withdraw)} className={btnSecondary} onClick={() => run("Withdraw", () =>
                       owner("Withdraw", st.vault!, "withdraw", { amount: toBaseUnits(withdraw) }, BigInt(0), 100))}>
                       Withdraw
                     </button>
@@ -421,7 +470,7 @@ export default function FinancePage() {
                     <F id="days" label="Valid days"><input id="days" inputMode="numeric" value={days} onChange={(e) => setDays(e.target.value)} className={`${input} tabular`} /></F>
                   </div>
                   <div className="mt-4 flex flex-wrap gap-2">
-                    <button type="button" disabled={!!busy || !hasKey || !isAmount(perTx) || !isAmount(daily) || !(Number(days) > 0)} className={btnPrimary} onClick={() => run("Set agent limits", () =>
+                    <button type="button" disabled={!!busy || !canSign || !isAmount(perTx) || !isAmount(daily) || !(Number(days) > 0)} className={btnPrimary} onClick={() => run("Set agent limits", () =>
                       owner("Set agent limits", st.vault!, "set_agent", {
                         agent: st.agent, per_tx_limit: toBaseUnits(perTx), daily_limit: toBaseUnits(daily),
                         expires_at_ms: Date.now() + Number(days) * 86_400_000,
@@ -429,7 +478,7 @@ export default function FinancePage() {
                       {p ? "Update limits" : "Authorize agent"}
                     </button>
                     {p && !p.revoked && (
-                      <button type="button" disabled={!!busy || !hasKey} className={`${btnSecondary} border-destructive/40 text-destructive hover:bg-destructive/5`}
+                      <button type="button" disabled={!!busy || !canSign} className={`${btnSecondary} border-destructive/40 text-destructive hover:bg-destructive/5`}
                         onClick={() => run("Revoke agent", () => owner("Revoke agent", st.vault!, "revoke_agent", { agent: st.agent }))}>
                         <Trash2 className="h-4 w-4" /> Revoke agent
                       </button>
@@ -446,7 +495,7 @@ export default function FinancePage() {
               {/* Employees */}
               {tab === "employees" && <Section id="employees" icon={Briefcase} title="Employees" sub="The people who work for the company. Set each person's monthly pay once, then run payroll in one click, from an Excel sheet, or by asking the agent. Runs are logged in Notion under Payouts.">
                 {st.vault && user ? (
-                  <EmployeesPanel employees={employees} userId={user.id} company={st.company!} vault={st.vault} vaultAvailable={st.vaultAvailable} hasKey={hasKey} reload={load} />
+                  <EmployeesPanel employees={employees} userId={user.id} company={st.company!} vault={st.vault} vaultAvailable={st.vaultAvailable} hasKey={canSign} reload={load} />
                 ) : <p className="rounded-lg bg-muted p-4 text-sm text-muted-foreground">Set up the company NEAR account first.</p>}
               </Section>}
 
@@ -466,7 +515,7 @@ export default function FinancePage() {
                             {x.allowListedOnChain ? (
                               <span className="text-xs font-medium text-success">Approved on vault</span>
                             ) : (
-                              <button type="button" className={`${btnSecondary} h-8 px-3 text-xs`} disabled={!!busy || !hasKey} onClick={() => run("Allow-list payee", () =>
+                              <button type="button" className={`${btnSecondary} h-8 px-3 text-xs`} disabled={!!busy || !canSign} onClick={() => run("Allow-list payee", () =>
                                 owner("Allow-list payee", st.vault!, "add_payee", { payee: x.nearAccount }))}>Approve on vault</button>
                             )}
                             <button type="button" className={`${btnSecondary} h-8 px-3 text-xs`} onClick={() => { setEditId(editId === x.id ? null : x.id); setEdit({ name: x.name, email: x.email || "", notes: x.notes || "" }) }}>Edit</button>
@@ -492,17 +541,24 @@ export default function FinancePage() {
                 ) : (
                   <p className="rounded-lg bg-muted p-4 text-sm text-muted-foreground">No suppliers yet. Add the vendors you pay regularly.</p>
                 )}
-                <div className="grid gap-3 sm:grid-cols-[1fr_1.3fr_auto] sm:items-end">
+                <div className="grid gap-3 sm:grid-cols-[1fr_1fr_1.3fr_auto] sm:items-end">
                   <F id="payee-name" label="Name"><input id="payee-name" value={payeeName} onChange={(e) => setPayeeName(e.target.value)} className={input} /></F>
+                  <F id="payee-email" label="Billing email"><input id="payee-email" type="email" value={payeeEmail} onChange={(e) => setPayeeEmail(e.target.value)} placeholder="Matches their bills" className={input} /></F>
                   <F id="payee-acct" label="NEAR account"><input id="payee-acct" value={payeeAcct} onChange={(e) => setPayeeAcct(e.target.value)} placeholder="supplier.testnet" className={`${input} font-mono`} spellCheck={false} /></F>
-                  <button type="button" className={btnPrimary} disabled={!!busy || !payeeAcct.trim() || !hasKey} onClick={() => run("Add payee", async () => {
-                    const r = await authService.api<{ payee: Payee }>("/api/payees", { method: "POST", body: JSON.stringify({ name: payeeName, nearAccount: payeeAcct, kind: "supplier" }) })
+                  <button type="button" className={btnPrimary} disabled={!!busy || !payeeAcct.trim() || !canSign} onClick={() => run("Add payee", async () => {
+                    const r = await authService.api<{ payee: Payee }>("/api/payees", { method: "POST", body: JSON.stringify({ name: payeeName, email: payeeEmail.trim() || undefined, nearAccount: payeeAcct, kind: "supplier" }) })
                     const tx = await owner("Allow-list payee", st.vault!, "add_payee", { payee: r.payee.nearAccount })
-                    setPayeeName(""); setPayeeAcct("")
+                    setPayeeName(""); setPayeeAcct(""); setPayeeEmail("")
                     return tx
                   })}><Plus className="h-4 w-4" /> Add</button>
                 </div>
               </Section>}
+
+            {/* Supplier bill inbox */}
+            {tab === "bills" && <Section id="bills" icon={Inbox} title="Supplier bills" sub="Contractors submit bills through your private inbox link. SKYPay matches each bill to a registered supplier by email, flags unknown senders, changed payout details and possible duplicates, and pays only to the account you registered. Each bill becomes one vault payment, logged in payments.csv and Notion like any other payout.">
+              <BillsPanel tokenShort={tokenShort} onChange={() => { load().catch(() => {}) }} />
+              <p className="text-sm text-muted-foreground">Your review here is an app-level control: the vault contract enforces the supplier allow-list, per-payment and daily limits, expiry and no-double-pay, but it does not record a separate per-bill approval.</p>
+            </Section>}
 
             {/* Supplier payments */}
             {tab === "pay" && <Section id="pay" icon={Send} title="Supplier payouts" sub="Send money from the vault to approved payees, using the agent's key. Over-limit, unapproved or revoked payments are refused on chain. Every payout is also logged in your Notion workspace under Supplier payments.">
@@ -703,7 +759,7 @@ export default function FinancePage() {
                 <dt className="text-muted-foreground">Receiving account</dt><dd className="break-all font-mono text-xs">{st.company}</dd>
                 <dt className="text-muted-foreground">Vault contract</dt><dd className="break-all font-mono text-xs">{st.vault}</dd>
                 <dt className="text-muted-foreground">Agent account</dt><dd className="break-all font-mono text-xs">{st.agent}</dd>
-                <dt className="text-muted-foreground">Owner key</dt><dd>{hasKey ? "In this browser. Keep the backup file safe." : "Not in this browser. Import your backup above."}</dd>
+                <dt className="text-muted-foreground">Owner key</dt><dd>{keyState === "ok" ? "In this browser, verified against the company. Keep the backup file safe." : keyState === "wrong" ? "The key in this browser is not the company owner key. Import the right backup above." : "Not in this browser. Import your backup above."}</dd>
               </dl>
             </Section>}
               </div>

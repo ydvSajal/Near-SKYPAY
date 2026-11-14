@@ -15,6 +15,12 @@ const DAY_MS: u64 = 86_400_000;
 const ONE_YOCTO: NearToken = NearToken::from_yoctonear(1);
 const GAS_TRANSFER: Gas = Gas::from_tgas(30);
 const GAS_CALLBACK: Gas = Gas::from_tgas(20);
+/// Every payment record is stored forever (replay protection), so caller-controlled text is bounded.
+const MAX_ID_LEN: usize = 64;
+const MAX_REF_LEN: usize = 64;
+/// NEAR kept free after a new record, so the vault never runs its storage reserve to the edge.
+/// Anyone can top the reserve up with a plain NEAR transfer to the vault account.
+const STORAGE_HEADROOM: u128 = 10_000_000_000_000_000_000_000; // 0.01 NEAR
 
 #[ext_contract(ext_ft)]
 trait FungibleToken {
@@ -177,6 +183,8 @@ impl Vault {
         expires_at_ms: u64,
     ) -> PromiseOrValue<PaymentStatus> {
         require!(env::attached_deposit().is_zero(), "no deposit allowed");
+        require!(!payment_id.is_empty() && payment_id.len() <= MAX_ID_LEN, "payment_id must be 1-64 bytes");
+        require!(invoice_ref.len() <= MAX_REF_LEN, "invoice_ref longer than 64 bytes");
         let agent_id = env::predecessor_account_id();
         let hash = self.request_hash(&agent_id, &recipient, amount.0, &invoice_ref, expires_at_ms);
 
@@ -221,6 +229,9 @@ impl Vault {
                 day: today,
             },
         );
+        // Clear refusal (whole call reverts, nothing reserved) instead of the runtime's LackBalanceForState.
+        let needed = (env::storage_usage() as u128) * env::storage_byte_cost().as_yoctonear() + STORAGE_HEADROOM;
+        require!(env::account_balance().as_yoctonear() >= needed, "vault storage reserve low: send NEAR to the vault account");
         emit("pay_reserved", json!({"payment_id": payment_id, "agent": agent_id, "recipient": recipient,
             "amount": amount.0.to_string(), "invoice_ref": invoice_ref}));
 

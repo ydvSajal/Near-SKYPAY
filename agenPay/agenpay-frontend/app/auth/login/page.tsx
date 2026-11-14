@@ -324,11 +324,20 @@ function NearStep({ onDone, onSkip, refreshUser }: { onDone: () => void; onSkip:
           <CheckCircle2 className="h-5 w-5 shrink-0" />
           <span className="min-w-0">Company account <span className="break-all font-mono">{state.company}</span></span>
         </div>
-        <div className="mt-8 grid gap-3">
-          <button type="button" className={secondary} onClick={() => setBackedUp(downloadOwnerKeyBackup(user!.id, state.company))}>
-            <Download className="h-4 w-4" /> {backedUp ? "Key backup downloaded" : "Download owner key backup"}
+        <ol className="mt-6 grid gap-2 text-sm text-muted-foreground">
+          <li><span className="font-semibold text-foreground">1. Download the backup file.</span> It holds the owner key; anyone with it controls the company account. SKYPay cannot recover it for you.</li>
+          <li><span className="font-semibold text-foreground">2. Keep it somewhere safe</span> (password manager or offline). To use another browser, sign in there and import this file under Finance. SKYPay checks it is this company&apos;s key before saving it.</li>
+        </ol>
+        <div className="mt-6 grid gap-3">
+          <button type="button" className={backedUp ? secondary : primary} onClick={() => setBackedUp(downloadOwnerKeyBackup(user!.id, state.company))}>
+            <Download className="h-4 w-4" /> {backedUp ? "Key backup downloaded (download again)" : "Download owner key backup"}
           </button>
-          <button type="button" className={primary} onClick={onDone}>Go to dashboard <ArrowRight className="h-4 w-4" /></button>
+          <button type="button" className={backedUp ? primary : secondary} onClick={onDone} disabled={!backedUp}>Go to dashboard <ArrowRight className="h-4 w-4" /></button>
+          {!backedUp && (
+            <button type="button" className="text-sm text-muted-foreground underline" onClick={onDone}>
+              Skip for now (Finance keeps reminding you until a backup is downloaded)
+            </button>
+          )}
         </div>
       </StepPanel>
     )
@@ -353,7 +362,7 @@ function NearStep({ onDone, onSkip, refreshUser }: { onDone: () => void; onSkip:
         {state.kind === "error" && (
           <ErrorBox>
             <p>{state.message}</p>
-            {state.retry && <p className="mt-1 text-destructive/80">You can try again. Your browser key is kept.</p>}
+            {state.retry && <p className="mt-1 text-destructive/80">You can try again. Your browser key is kept, and setup continues with the accounts already created instead of making new ones.</p>}
           </ErrorBox>
         )}
         {state.kind === "working" && <p className="text-sm text-muted-foreground">Creating accounts on NEAR testnet. This takes about 30 seconds; keep this tab open.</p>}

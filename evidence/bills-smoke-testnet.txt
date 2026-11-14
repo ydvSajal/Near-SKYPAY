@@ -1,0 +1,23 @@
+# SkyPay supplier bill inbox smoke 2026-11-14T07:56:57.990Z against http://localhost:3001 (NEAR testnet, tUSDC test token, no value)
+1. fresh company provisioned: billsmokeage574f.testnet | vault billsmokeage574f-vault.testnet | agent billsmokeage574f-agent.testnet
+   vault code_hash (base58 sha256) H2uuyHMydphkNWQJynPrbvDcB5A67wuo9sHhQat2dbtA
+2. faucet 100 tUSDC, agent limits 5/payment 8/day, vault funded 20 (all owner-signed, sponsor-relayed)
+3. owner registered supplier Dana Design <dana@studio.example> = skypay-bill-0b2466.testnet and allow-listed it on the vault
+4. inbox link: /bills/submit/coI2WuM5hxExwC2iXI0fQzjo
+5. contractor opens link (no login): "Send a bill to Bill Smoke Agency"
+6. contractor submits D-101 for 3 tUSDC -> status link /bills/status/-wzsTENs7l_EUi100WTuIZNM
+7. same bill submitted again: 409 bill D-101 was already submitted from dana@studio.example
+8. owner inbox: M-1=flagged[unknown_supplier] -> no registered supplier | D-102=flagged[payout_changed] -> skypay-bill-0b2466.testnet | D-101=needs_review -> skypay-bill-0b2466.testnet
+9. owner pays D-101: bill=paid payment=settled to skypay-bill-0b2466.testnet https://testnet.nearblocks.io/txns/Bg2WVFKJmrcYnFL7YtFp6aTmXLZL6ejo2RyAE1SQa2vm
+10. pay clicked again: alreadyDispatched=true, same payment=true (no second transfer)
+11. D-102 (payout account changed on bill) without review: 409 review flags first: payout_changed
+12. D-102 after explicit review: paid to skypay-bill-0b2466.testnet (registered), not attacker.testnet: bill=paid https://testnet.nearblocks.io/txns/GKXFPA5eY8pvp1RJt28N18NYuSiAck9ajLJK7pgyg7Bu
+13. M-1 from unregistered sender: 409 supplier is not registered: add them under Payees (owner-verified NEAR account) first
+14. owner rejects M-1: rejected
+15. contractor status page D-101: paid 3 tUSDC tx=https://testnet.nearblocks.io/txns/Bg2WVFKJmrcYnFL7YtFp6aTmXLZL6ejo2RyAE1SQa2vm
+16. contractor status page D-102 shows no flags/registry data: keys=company,invoiceNumber,amount,description,dueDate,submittedAt,status,paidAt,txHash,note,amountFormatted,txUrl
+17. payments.csv (bills appear as vault payouts with their bill memo):
+payment_id,direction,invoice_number,counterparty,amount,currency,network,status,transaction_hash,transaction_url,error,created_at_utc,updated_at_utc,batch,memo
+out_3f82676fb4e7938e4c84648ea2e05b1f,outgoing,,skypay-bill-0b2466.testnet,3.000000,USDC,near:testnet,settled,Bg2WVFKJmrcYnFL7YtFp6aTmXLZL6ejo2RyAE1SQa2vm,https://testnet.nearblocks.io/txns/Bg2WVFKJmrcYnFL7YtFp6aTmXLZL6ejo2RyAE1SQa2vm,,2026-11-14T07:58:04.878Z,2026-11-14T07:58:10.840Z,,Bill D-101 (Dana)
+out_beab722aa08d95f16baf3f5d627f908a,outgoing,,skypay-bill-0b2466.testnet,2.000000,USDC,near:testnet,settled,GKXFPA5eY8pvp1RJt28N18NYuSiAck9ajLJK7pgyg7Bu,https://testnet.nearblocks.io/txns/GKXFPA5eY8pvp1RJt28N18NYuSiAck9ajLJK7pgyg7Bu,,2026-11-14T07:58:10.896Z,2026-11-14T07:58:16.813Z,,Bill D-102 (Dana)
+18. another company: sees 0 bills; paying this company's bill -> 404 bill not found

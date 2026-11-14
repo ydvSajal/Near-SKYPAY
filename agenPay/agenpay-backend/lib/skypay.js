@@ -115,12 +115,14 @@ export class SkyPay {
   async addPayee(userId, { name, email, nearAccount, notes, kind, role, salary }) {
     const acct = String(nearAccount || '').trim().toLowerCase();
     if (!NEAR_ACCOUNT.test(acct)) throw httpErr(400, 'invalid NEAR account id');
+    email = String(email || '').trim().toLowerCase() || null; // billing email: supplier bills are matched on it
+    if (email && !EMAIL.test(email)) throw httpErr(400, 'invalid email');
     if (!(await this.near.accountExists(acct))) throw httpErr(400, `${acct} does not exist on NEAR ${this.near.network}`);
     await this.near.registerOnToken(acct); // sponsor-paid NEP-145 registration so it can receive USDC
     const payee = await this.prisma.payee.upsert({
       where: { userId_nearAccount: { userId, nearAccount: acct } },
-      create: { userId, name: String(name || acct).slice(0, 120), email: email || null, nearAccount: acct, notes: notes ? String(notes).slice(0, 500) : null, ...staffFields({ kind, role, salary }) },
-      update: { name: String(name || acct).slice(0, 120), email: email || null, ...(notes ? { notes: String(notes).slice(0, 500) } : {}), ...staffFields({ kind, role, salary }) },
+      create: { userId, name: String(name || acct).slice(0, 120), email, nearAccount: acct, notes: notes ? String(notes).slice(0, 500) : null, ...staffFields({ kind, role, salary }) },
+      update: { name: String(name || acct).slice(0, 120), email, ...(notes ? { notes: String(notes).slice(0, 500) } : {}), ...staffFields({ kind, role, salary }) },
     });
     await this.outbox.enqueue(userId, 'notion_payee', `notion_payee:${payee.id}:${Date.now()}`, { payeeId: payee.id }).catch(() => {});
     return payee;
@@ -239,7 +241,7 @@ export class SkyPay {
     const payee = await this.prisma.payee.findFirst({ where: { id: payeeId, userId } });
     if (!payee) throw httpErr(404, 'payee not registered by the owner');
     const base = parseUnits(String(amount));
-    const paymentId = `out_${crypto.createHash('sha256').update(`${userId}|${idempotencyKey || crypto.randomUUID()}`).digest('hex').slice(0, 32)}`;
+    const paymentId = paymentIdFor(userId, idempotencyKey || crypto.randomUUID());
 
     const existing = await this.prisma.paymentAttempt.findUnique({ where: { paymentId } });
     if (existing) {
@@ -293,7 +295,42 @@ export class SkyPay {
     const status = !onChain ? a.status : ({ Reserved: 'processing', Settled: 'settled', Failed: 'failed' }[onChain.status] || a.status);
     const out = await this.prisma.paymentAttempt.update({ where: { id: a.id }, data: { status } });
     await this.outbox.enqueue(userId, 'notion_payout', `notion_payout:${a.id}:${status}`, { attemptId: a.id }).catch(() => {});
+    if (a.batchId) await this.refreshBatch(userId, a.batchId);
+    await this.syncBill(a.id);
     return out;
+  }
+
+  /**
+   * Recompute a run's aggregate status from its persisted lines (after reconcile or a crash).
+   * Lines are counted against the batch total: if the persisted lines do not add up to it, some items
+   * were never dispatched, so the run can be at most "partial" and is never reported as done.
+   */
+  async refreshBatch(userId, batchId) {
+    const b = await this.prisma.payoutBatch.findFirst({ where: { id: batchId, userId }, include: { payments: true } });
+    if (!b) return null;
+    const lines = b.payments || [];
+    const sum = lines.reduce((s, p) => s + BigInt(p.amount), 0n);
+    const missing = sum < BigInt(b.total);
+    let status;
+    if (lines.some((p) => !['settled', 'failed'].includes(p.status))) status = 'processing';
+    else {
+      const n = lines.filter((p) => p.status === 'settled').length;
+      status = n === 0 ? 'failed' : (n === lines.length && !missing ? 'done' : 'partial');
+    }
+    if (status === b.status) return b;
+    const out = await this.prisma.payoutBatch.update({ where: { id: b.id }, data: { status } });
+    await this.outbox.enqueue(userId, 'notion_batch', `notion_batch:${b.id}:${status}`, { batchId: b.id }).catch(() => {});
+    return out;
+  }
+
+  /** Keep a supplier bill's status in step with its vault payment (no-op for payments that are not bills). */
+  async syncBill(attemptId) {
+    if (!this.prisma.supplierBill) return;
+    const bill = await this.prisma.supplierBill.findFirst({ where: { paymentAttemptId: attemptId } });
+    if (!bill) return;
+    const a = await this.prisma.paymentAttempt.findUnique({ where: { id: attemptId } });
+    const status = billStatusOf(a);
+    if (status !== bill.status) await this.prisma.supplierBill.update({ where: { id: bill.id }, data: { status } });
   }
 }
 
@@ -350,6 +387,15 @@ export function parseOutcome(status) {
     return { status: v === 'Settled' ? 'settled' : v === 'Failed' ? 'failed' : 'processing', error: v === 'Failed' ? 'token transfer failed; reservation released' : null };
   }
   return { status: 'unknown', error: null };
+}
+
+/** Vault payment id for an idempotency key (32 hex chars, so the on-chain reference stays short). */
+export const paymentIdFor = (userId, key) => `out_${crypto.createHash('sha256').update(`${userId}|${key}`).digest('hex').slice(0, 32)}`;
+
+/** Supplier bill status derived from its vault payment. An unknown outcome is never shown as paid or failed. */
+export function billStatusOf(a) {
+  if (!a) return 'paying';
+  return { settled: 'paid', failed: 'failed', unknown: 'unknown' }[a.status] || 'paying';
 }
 
 export function httpErr(status, message) {

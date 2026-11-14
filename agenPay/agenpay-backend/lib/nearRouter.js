@@ -7,6 +7,11 @@ import { formatUnits, parseUnits } from './near/units.js';
 import { invoicesCsv, paymentsCsv } from './csvExport.js';
 import { dryQuote, sourceAssets } from './intents.js';
 import { sellerOf } from './skypay.js';
+import { Prisma } from '@prisma/client';
+
+const YOCTO = 10n ** 24n;
+const toNear = (y) => (Number(BigInt(y) / 10n ** 18n) / 1e6).toFixed(4); // display only
+const PAYMENT_RECORD_BYTES = 400n; // generous per-payment storage estimate (record + map key)
 
 const wrap = (fn) => (req, res) =>
   fn(req, res).catch((e) => {
@@ -30,33 +35,60 @@ export function createNearRouter({ prisma, near, skypay, authenticateToken }) {
       tokenLabel: isTestToken ? 'tUSDC (testnet test token, no value)' : 'USDC',
       relayer: near.relayerId, company: u.nearAccountId, vault: u.vaultAccountId, agent: u.agentAccountId,
       ownerPublicKey: u.nearPublicKey,
+      // interrupted setup: the owner key it was started with, so the UI can ask for that backup
+      setupInProgress: u.provisionState ? { ownerPublicKey: u.provisionState.ownerPublicKey, done: u.provisionState.done || [] } : null,
     };
+    const sponsor = near.configured ? await near.accountInfo(near.relayerId) : null;
+    out.sponsor = sponsor ? { account: near.relayerId, balanceNear: toNear(sponsor.amount), low: BigInt(sponsor.amount) < 3n * YOCTO } : null;
     if (u.vaultAccountId) {
-      const [bal, vault, agent] = await Promise.all([
+      const [bal, vault, agent, vaultAcct, agentKeys] = await Promise.all([
         near.ftBalance(u.nearAccountId), near.vaultState(u.vaultAccountId), near.vaultAgent(u.vaultAccountId, u.agentAccountId),
+        near.accountInfo(u.vaultAccountId), near.accessKeys(u.agentAccountId),
       ]);
+      // gas allowance of the restricted agent key: adding NEAR to the agent account does NOT refill it
+      const fc = agentKeys.find((k) => k.permission?.FunctionCall)?.permission.FunctionCall;
+      const allowance = fc?.allowance ?? null;
+      // storage reserve: NEAR above what current state locks; each new payment record locks a little more
+      const free = vaultAcct ? BigInt(vaultAcct.amount) - BigInt(vaultAcct.storage_usage) * 10n ** 19n : 0n;
       Object.assign(out, {
         companyBalance: bal, vaultAvailable: vault.available, vaultReserved: vault.reserved, agentPolicy: agent,
+        agentKey: { present: !!fc, allowanceNear: allowance === null ? null : toNear(allowance),
+          low: allowance !== null && BigInt(allowance) < YOCTO / 50n, // < 0.02 NEAR ≈ a few dozen payments
+          payMethods: fc?.method_names || [] },
+        vaultStorage: { freeNear: toNear(free > 0n ? free : 0n), approxPaymentsLeft: (free > 0n ? free / (PAYMENT_RECORD_BYTES * 10n ** 19n) : 0n).toString() },
         links: { company: near.explorerAccount(u.nearAccountId), vault: near.explorerAccount(u.vaultAccountId), agent: near.explorerAccount(u.agentAccountId) },
       });
     }
     res.json(out);
   }));
 
+  // Resumable: progress (incl. encrypted keys generated before each account exists) is saved after every step,
+  // so a retry after a crash/timeout continues the same accounts. One setup per company at a time.
+  const provisioning = new Set(); // ponytail: process-local lock; a DB advisory lock if the API ever runs >1 instance
   r.post('/api/near/provision', authenticateToken, wrap(async (req, res) => {
     const u = await me(req);
     if (u.nearAccountId) return res.status(409).json({ error: 'already provisioned', company: u.nearAccountId });
     const publicKey = String(req.body.publicKey || '');
     if (!/^ed25519:[1-9A-HJ-NP-Za-km-z]{43,44}$/.test(publicKey)) return res.status(400).json({ error: 'ed25519 public key required' });
-    const base = (u.name || u.email.split('@')[0]).toLowerCase().replace(/[^a-z0-9]+/g, '').slice(0, 12) || 'co';
-    const slug = `${base}${crypto.randomBytes(2).toString('hex')}`;
-    const p = await near.provision({ slug, ownerPublicKey: publicKey });
-    await prisma.user.update({
-      where: { id: u.id },
-      data: { nearAccountId: p.company, nearPublicKey: publicKey, vaultAccountId: p.vault, agentAccountId: p.agent, agentKeyEnc: p.agentKeyEnc },
-    });
-    await prisma.sponsorLedger.createMany({ data: p.log.map((l) => ({ userId: u.id, kind: l.kind, detail: l.detail })) });
-    res.json({ company: p.company, vault: p.vault, agent: p.agent, sponsored: p.log });
+    if (provisioning.has(u.id)) return res.status(409).json({ error: 'setup already running; wait for it to finish' });
+    provisioning.add(u.id);
+    try {
+      const state = u.provisionState || null;
+      const base = (u.name || u.email.split('@')[0]).toLowerCase().replace(/[^a-z0-9]+/g, '').slice(0, 12) || 'co';
+      const slug = state?.slug || `${base}${crypto.randomBytes(2).toString('hex')}`;
+      const p = await near.provision({
+        slug, ownerPublicKey: publicKey, state,
+        save: (s) => prisma.user.update({ where: { id: u.id }, data: { provisionState: s } }),
+      });
+      await prisma.user.update({
+        where: { id: u.id },
+        data: { nearAccountId: p.company, nearPublicKey: publicKey, vaultAccountId: p.vault, agentAccountId: p.agent, agentKeyEnc: p.agentKeyEnc, provisionState: Prisma.DbNull },
+      });
+      if (p.log.length) await prisma.sponsorLedger.createMany({ data: p.log.map((l) => ({ userId: u.id, kind: l.kind, detail: l.detail })) });
+      res.json({ company: p.company, vault: p.vault, agent: p.agent, sponsored: p.log, resumed: !!state });
+    } finally {
+      provisioning.delete(u.id);
+    }
   }));
 
   // Sponsored owner actions: browser signs a delegate action, relayer pays gas (A21, A22).

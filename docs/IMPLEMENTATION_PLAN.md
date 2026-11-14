@@ -15,4 +15,15 @@ Research: November 14, 2026 IST. Deadline verified at November 14 23:59 UTC. Ini
 | P1 optional refinements | Invoice creation idempotency; durable batch lines; robust Notion mappings and provider idempotency | Make current workflow reproducible | DB migrations and concurrency tests, 3?5h | Payroll same-name race/retry guard implemented with deterministic database key; durable batch lines, aggregate recovery and provider mapping work remain open |
 | Deferred | New x402, additional networks, multi-agent systems, arbitrary treasury automation | Feature accumulation dilutes core evidence | N/A | Deferred |
 
+## Pre-submission additions (November 14 review follow-up)
+
+| Item | Status |
+|---|---|
+| Supplier bill inbox (structured fields, registry matching, flags, one payment per bill, contractor status page) | Done; local tests + live testnet run. PDF extraction and on-chain per-bill approval deferred |
+| Onboarding: readiness checklist, explicit backup step, verified key import, resumable provisioning | Done; local resume test + browser wrong-key check |
+| Health checks the database; batch aggregate recomputed from persisted lines | Done |
+| Vault: 64-byte reference caps, explicit storage-reserve refusal, reproducible build script | Done for new vaults; existing vaults unchanged (immutable) |
+| Owner-authorized invoice refunds | Not started: needs payer recorded at settlement, an owner-signed transfer from the receiving account through a refund-specific sponsor rule, and its own state machine |
+| Agent key replacement when the gas allowance runs low | Not started; readiness warns below 0.02 NEAR |
+
 The handoff target is not fully met. Missing mainnet execution permission is a live-evidence blocker, not an excuse to label a dry quote as payment. Current safe release candidate is a native testnet demonstration, subject to fresh DB/build/contract validation. Mainnet enablement needs implementation as well as authorization; flipping RPC variables is insufficient.

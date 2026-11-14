@@ -6,7 +6,7 @@
 
 The core demonstration is native NEAR testnet with test tUSDC, which has no value. Intents is a separate mainnet dry-price preview; it does not settle this invoice. State these boundaries before showing a payment.
 
-For a no-credentials check, run the README offline commands: 42 backend tests, 6 payroll tests, TypeScript and lint passed in the latest recheck. These tests use doubles for external boundaries. For the product walkthrough below, first complete SETUP and use controlled test data, a funded testnet sponsor and an existing testnet supplier account. Model, SMTP and Notion credentials are optional extensions; describe absent integrations as fixtures.
+For a no-credentials check, run the README offline commands: 54 backend tests, 6 payroll tests, TypeScript and lint passed on November 14. These tests use doubles for external boundaries. For the product walkthrough below, first complete SETUP and use controlled test data, a funded testnet sponsor and an existing testnet supplier account. Model, SMTP and Notion credentials are optional extensions; describe absent integrations as fixtures.
 
 ## 1. Create the company workspace
 
@@ -61,7 +61,23 @@ Set the agent to 25 per payment and 40 per day. Register and owner-approve an ex
 
 The replay/payload checks can be shown with the existing headless script or direct contract tests; do not pretend a new UI click necessarily reuses a payment ID. Backend checks are useful, but direct contract tests establish that bypassing the backend does not bypass policy.
 
-## 7. Optional payroll and recovery
+## 7. Supplier bill inbox
+
+In Finance, add a supplier with a billing email (Suppliers tab) and approve it on the vault. Open Supplier bills, copy the inbox link and open it in a private window. Submit a bill as the contractor with that email; you land on a private status page ("in review").
+
+| Action | Expected observation |
+|---|---|
+| Owner clicks Pay from vault | Bill paid; one vault payment to the registered account; status page shows paid with a NEAR transaction link |
+| Click Pay again | "already sent; not sent again" |
+| Contractor resubmits the same invoice number | Refused as already submitted |
+| Submit with a different NEAR account | Flagged "payout changed"; paying requires ticking the review box and still goes to the registered account |
+| Submit from an unknown email | Flagged "unknown supplier"; Pay refused until the supplier is registered |
+
+The same journey runs headless with `node scripts/bills-smoke.mjs` (provisions a fresh company; uses about 2.4 NEAR of sponsor funds). Say clearly that owner review is enforced by SkyPay's API, while the vault enforces allow-list, limits and no-double-pay.
+
+The Readiness panel at the top of Finance lists the owner key (verified against the company), backup, both balances, agent policy, agent gas allowance, vault storage reserve and sponsor balance. To show recovery, sign in from another browser and import the backup file: a wrong key is refused before anything is stored.
+
+## 8. Optional payroll and recovery
 
 Show Employees, role/pay defaults and spreadsheet preview. Payroll import accepts at most 25 rows; the manual supplier batch UI allows 10 rows while the backend cap is 25. A sample sheet follows below; replace accounts with verified controlled testnet recipients before payment:
 
@@ -85,7 +101,7 @@ Run from `agenPay/agenpay-backend` after reviewing the scripts and configuration
 | node scripts/near-e2e.mjs | Testnet vault lifecycle; signs transactions and uses sponsor resources |
 | node scripts/intents-quote.mjs | Provider network requests only; dry quotes, no signing/funds movement |
 
-For direct unit and sandbox commands, see SETUP. Cargo was unavailable in the latest review. These scripts are not the offline test suite, and this documentation update did not execute them.
+For direct unit and sandbox commands, run `bash contracts/build-and-test.sh` in Linux/WSL (see SETUP). These scripts are not the offline test suite, and this documentation update did not execute them.
 
 The [supplied integration transcript](../evidence/review-fixes-20261114.txt) reports a disposable-Postgres run, memo-bound testnet settlement, sponsor checks and SMTP/Notion acceptance. It was inspected rather than freshly reproduced in the latest recheck. Use [VALIDATION.md](VALIDATION.md) to distinguish those records from current local tests.
 

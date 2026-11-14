@@ -58,6 +58,31 @@ fn a08_allowed_payment_reserves_then_settles() {
 }
 
 #[test]
+#[should_panic(expected = "invoice_ref longer than 64 bytes")]
+fn oversized_reference_refused() {
+    let mut v = setup();
+    testing_env!(ctx("agent.test", T0).build());
+    v.pay("p1".into(), acc("bob.test"), U128(10), "x".repeat(65), T0 + HOUR);
+}
+
+#[test]
+#[should_panic(expected = "payment_id must be 1-64 bytes")]
+fn oversized_payment_id_refused() {
+    let mut v = setup();
+    pay(&mut v, &"p".repeat(65), 10, T0);
+}
+
+#[test]
+#[should_panic(expected = "vault storage reserve low")]
+fn payment_refused_when_storage_reserve_is_exhausted() {
+    let mut v = setup();
+    let mut c = ctx("agent.test", T0);
+    c.account_balance(NearToken::from_yoctonear(0));
+    testing_env!(c.build());
+    v.pay("p1".into(), acc("bob.test"), U128(10), "INV-1".into(), T0 + HOUR);
+}
+
+#[test]
 #[should_panic(expected = "exceeds per-payment limit")]
 fn a09_over_per_payment_limit_refused() {
     let mut v = setup();

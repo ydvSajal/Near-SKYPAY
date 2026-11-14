@@ -10,6 +10,7 @@
 | Sponsor relayer | Pays gas | `relayGuard.checkDelegate` limits what it will submit; it never holds user authority |
 | LLM | Proposes typed actions | No keys; tools re-check payee registration; vault enforces limits |
 | Client / payer | Pays invoices | Settlement verified on-chain |
+| Contractor (bill inbox link) | Submits a bill; reads its own bill's status | Cannot choose the payout account (taken from the owner's supplier registry); status page shows no flags or registry data; 20 submissions/hour/IP |
 
 The vault has **no access keys** after deployment. Its code cannot be upgraded and its funds move only through
 `pay` (agent, within limits) or `withdraw` (owner). Recovery is the owner withdrawing available funds.
@@ -24,11 +25,17 @@ The vault has **no access keys** after deployment. Its code cannot be upgraded a
   (`NEAR_RPC_URL`) returns honest final data.
 * **Notion and email are views.** They are updated from durable outbox jobs and never decide whether money moved.
 * **Tenant isolation.** Every private query is scoped to the authenticated user id (JWT).
+* **Bills are data, not payment instructions.** A bill's typed payout account is only compared with the registry and
+  flagged (`payout_changed`) when it differs; payment always goes to the registered account. Bills are immutable after
+  submission, so a changed amount or account is a new bill that needs its own review. Owner review is enforced by the
+  API; the vault does not record per-bill approval (the agent key can still pay an allow-listed supplier within limits).
+* **Owner key import is verified.** A backup is accepted only if its public key equals the company's registered owner key.
 
 ## Secrets
 
 * `.env` and `.env.near` are gitignored. `.env.near` holds the sponsor key and the key-encryption secret.
-* The agent's function-call key is stored AES-256-GCM encrypted with `NEAR_KEY_ENC_SECRET`.
+* The agent's function-call key is stored AES-256-GCM encrypted with `NEAR_KEY_ENC_SECRET`. During an interrupted setup,
+  the not-yet-deleted vault and agent setup keys are kept the same way in `User.provisionState` and cleared when setup completes.
 * The owner's key never leaves the browser; only the public key is sent to provision the account.
 * Prior documentation claims a history scan; this review did not independently scan all history. Do not publish without verifying history and rotating any exposed credentials.
 

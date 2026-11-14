@@ -21,6 +21,7 @@ import { SkyPay } from './lib/skypay.js';
 import { ReconciliationWorker } from './lib/reconciliation.js';
 import { createNearRouter } from './lib/nearRouter.js';
 import { createX402Router } from './lib/x402.js';
+import { Bills, createBillsRouter } from './lib/bills.js';
 
 // Load environment variables
 config({ path: ['.env.near', '.env'] }); // NEAR secrets live in .env.near (gitignored)
@@ -39,7 +40,8 @@ const prisma = new PrismaClient();
 const nearService = new NearService(process.env);
 const outbox = new Outbox({ prisma, near: nearService });
 const skypay = new SkyPay({ prisma, near: nearService, outbox });
-const reconciliation = new ReconciliationWorker({ prisma, skypay });
+const bills = new Bills({ prisma, skypay });
+const reconciliation = new ReconciliationWorker({ prisma, skypay, bills });
 
 // Store active agents for each user
 const activeAgents = new Map();
@@ -124,6 +126,8 @@ const authenticateToken = async (req, res, next) => {
 
 // ⛓️ NEAR workflow: company vault, sponsored relay, invoices, checkout, exports
 app.use(createNearRouter({ prisma, near: nearService, skypay, authenticateToken }));
+// Supplier bill inbox: public submission link + owner review/pay through the vault
+app.use(createBillsRouter({ bills, near: nearService, authenticateToken }));
 
 // x402 on NEAR: pay links (HTTP 402) + self-hosted facilitator
 app.use(createX402Router({
@@ -133,12 +137,20 @@ app.use(createX402Router({
 }));
 
 // Health check
-app.get('/health', (req, res) => {
-  res.json({
-    status: 'healthy',
+// Liveness + readiness: the database is actually queried, so 200 means Postgres answered.
+app.get('/health', async (req, res) => {
+  let database = 'connected';
+  try {
+    await Promise.race([prisma.$queryRaw`SELECT 1`, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 3000))]);
+  } catch (e) {
+    database = `unavailable: ${String(e.message).slice(0, 80)}`;
+  }
+  const ok = database === 'connected';
+  res.status(ok ? 200 : 503).json({
+    status: ok ? 'healthy' : 'degraded',
     timestamp: new Date().toISOString(),
     version: '1.0.0',
-    services: { database: 'connected', near: nearService.configured ? `${nearService.network}` : 'not configured' },
+    services: { database, near: nearService.configured ? `${nearService.network}` : 'not configured' },
   });
 });
 

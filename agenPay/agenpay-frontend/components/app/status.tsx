@@ -8,6 +8,11 @@ const TONE: Record<string, string> = {
   reserved: "bg-warning/10 text-warning",
   submitted: "bg-warning/10 text-warning",
   processing: "bg-warning/10 text-warning",
+  paying: "bg-warning/10 text-warning",
+  needs_review: "bg-warning/10 text-warning",
+  in_review: "bg-warning/10 text-warning",
+  flagged: "bg-destructive/10 text-destructive",
+  rejected: "bg-muted text-muted-foreground",
   failed: "bg-destructive/10 text-destructive",
   refunded: "bg-muted text-muted-foreground",
   cancelled: "bg-muted text-muted-foreground",
@@ -18,7 +23,7 @@ export function StatusPill({ status }: { status: string }) {
   const s = status.toLowerCase()
   return (
     <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium capitalize ${TONE[s] ?? TONE.unknown}`}>
-      {s}
+      {s.replace("_", " ")}
     </span>
   )
 }

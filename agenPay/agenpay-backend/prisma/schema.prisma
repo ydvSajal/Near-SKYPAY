@@ -29,6 +29,8 @@ model User {
   vaultAccountId   String?  @unique   // operating vault contract
   agentAccountId   String?            // agent account allowed to call vault.pay only
   agentKeyEnc      String?            // agent function-call key, AES-GCM encrypted with NEAR_KEY_ENC_SECRET
+  provisionState   Json?              // progress of an interrupted company setup, so a retry resumes instead of creating new accounts
+  billInboxToken   String?  @unique   // secret path segment of the public supplier-bill submission link
   createdAt        DateTime           @default(now())
   updatedAt        DateTime           @updatedAt
   
@@ -41,6 +43,34 @@ model User {
   payoutBatches    PayoutBatch[]
   outboxJobs      OutboxJob[]
   sponsorLedger    SponsorLedger[]
+  supplierBills    SupplierBill[]
+}
+
+// A bill a contractor submitted through the company's inbox link. Immutable after submission:
+// changing any financial detail means a new submission, so an owner's decision always applies to what was submitted.
+// The payout address ALWAYS comes from the owner's Payee registry; claimedAccount is only compared, never paid to.
+model SupplierBill {
+  id               String    @id @default(cuid())
+  userId           String
+  payeeId          String?                       // registered supplier this bill matched
+  submitterName    String
+  submitterEmail   String                        // lower-cased
+  claimedAccount   String?                       // payout account typed by the contractor (informational)
+  invoiceNumber    String
+  description      String?
+  amount           String                        // base units
+  dueDate          DateTime?
+  status           String    @default("needs_review") // needs_review | flagged | paying | paid | failed | unknown | rejected
+  flags            Json                          // e.g. ["unknown_supplier","payout_changed","possible_duplicate"]
+  statusToken      String    @unique             // secret for the contractor's status page
+  paymentAttemptId String?   @unique
+  tries            Int       @default(0)         // dispatches; only a definite on-chain refusal allows another
+  reviewNote       String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, submitterEmail, invoiceNumber])
 }
 
 // ===================== NEAR / hackathon models =====================

@@ -8,7 +8,7 @@ This is a reference for the current Express routes, not a versioned external SDK
 
 | Method / route | Input | Result |
 |---|---|---|
-| GET /health | None | Liveness/configuration JSON. The database label is not an active readiness probe |
+| GET /health | None | Runs `SELECT 1` (3 s timeout): 200 `healthy` when Postgres answers, 503 `degraded` otherwise. Not a chain-readiness probe |
 | POST /api/auth/register | email, password (at least 8 characters), optional name | success, token, public user; creates a DB user, not a company chain footprint |
 | POST /api/auth/login | email, password | JWT and public user |
 | GET /api/me | Bearer JWT | Authenticated public user |
@@ -20,8 +20,8 @@ An invoice URL is public bearer access, not a login. Treat possession as permiss
 
 | Method / route | Purpose |
 |---|---|
-| GET /api/near/status | Active network/token, company/vault/agent identities, balances and policy when provisioned |
-| POST /api/near/provision | Body publicKey: browser-generated ed25519 owner public key; creates testnet company footprint using sponsor resources |
+| GET /api/near/status | Active network/token, company/vault/agent identities, balances and policy when provisioned; readiness data: `agentKey` (gas allowance left on the pay-only key), `vaultStorage` (free NEAR, approximate payment records left), `sponsor` (balance, low flag), `setupInProgress` (interrupted setup and its owner key) |
+| POST /api/near/provision | Body publicKey: browser-generated ed25519 owner public key; creates testnet company footprint using sponsor resources. Resumable: after an interruption, the same call continues the same accounts (must use the same owner key; 409 otherwise). One setup per company at a time |
 | POST /api/near/relay | Body signedDelegate (base64), optional label; validates and relays a signed owner action |
 | POST /api/near/test-faucet | Mints 100 test tUSDC to the provisioned company; test-token mode only |
 | GET /api/payees | Registered payees with an on-chain allowlist check |
@@ -82,6 +82,21 @@ Example supplier request:
 Use the same idempotency key for the same payment. Changed recipient, amount or memo is rejected. Without a key the service generates a new identity; a repeated POST can represent another payment. An HTTP 200 can contain an unresolved payment: inspect payment.status, not the status code alone. Definitive failed supplier responses use 422. Status values include submitted, processing, unknown, settled and failed.
 
 For payroll set kind to payroll and supply a deliberate label. A company/name pair is reserved once before dispatch, including failed runs. Same-name reuse returns 409; a new name is an intentional new run. Batch processing is synchronous; durable unfinished-line recovery is incomplete. Reconcile uncertain attempts instead of submitting a new batch.
+
+## Supplier bill inbox
+
+| Route | Auth | Purpose |
+|---|---|---|
+| GET /api/bills/inbox-link | Bearer | Company's inbox token and `/bills/submit/:token` path (created on first use) |
+| POST /api/bills/inbox-link/rotate | Bearer | New token; the old link stops accepting bills |
+| GET /api/bills | Bearer | Latest 100 bills with matched supplier, flags, payment and transaction link |
+| POST /api/bills/:id/pay | Bearer | Body `acknowledgeFlags` (required when flagged). Pays the REGISTERED supplier account through the vault; repeat calls return the existing payment (`alreadyDispatched`); retry allowed only after a definite vault refusal. 409 for unregistered suppliers or unreviewed flags; 422 when the vault refuses |
+| POST /api/bills/:id/reject | Bearer | Body `note` (shown to the contractor) |
+| GET /api/public/bill-inbox/:token | None | Company display name and network for the form |
+| POST /api/public/bill-inbox/:token | None (20/hour/IP) | name, email, invoiceNumber, amount, optional description/dueDate/payoutAccount. 409 if the same email already sent that invoice number. Returns a private `statusPath` |
+| GET /api/public/bills/:statusToken | None | Status (`in_review`, `paying`, `unknown`, `paid`, `failed`, `rejected`), amount, dates, transaction link once paid. No flags or registry data |
+
+Flags: `unknown_supplier` (no registered supplier with that email or account), `payout_changed` (typed account differs from the registry), `possible_duplicate` (same supplier, same number or amount, within 30 days).
 
 ## Exports, agent and x402
 
