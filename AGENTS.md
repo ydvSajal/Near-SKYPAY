@@ -81,6 +81,60 @@ curl -s -X POST localhost:3001/api/vault/payments -H "Authorization: Bearer $TOK
 
 Full endpoint list: [docs/API.md](docs/API.md).
 
+## Testing directions for a review agent
+
+Use this section when reviewing SkyPay end to end. It tells you what to run, what should happen, and how to report. Read the Known limits section too: those are not bugs.
+
+### What you may and may not do
+
+- Testnet only. Never point a test at a mainnet RPC, a mainnet token or a production database. The backend refuses mainnet, so do not try to change that.
+- Do not print, store or paste keys, tokens, `.env` or `.env.near` contents into your report.
+- Do not run `prisma db push --force-reset` or any seed against a database you did not create for this test.
+- Each company setup and each `bills-smoke` or `near-e2e` run spends about 2.5 NEAR of sponsor gas. Run them once per review, not in a loop.
+- Use throwaway users and companies. Do not change or delete the QA company's data unless asked.
+
+### Order
+
+1. **Offline (no network):** Level 1 commands above. Expect 62 backend tests passing, 0 failing; frontend `tsc` and lint clean; payroll tests 6 passing.
+2. **Local API:** start Postgres and `node server.js`, then `node scripts/agent-smoke.mjs`. Expect `ALL CHECKS PASSED`. It works with or without `.env.near`.
+3. **On-chain scripts (testnet):** need `npm run near:bootstrap` first. Run `node scripts/bills-smoke.mjs`, `node scripts/near-e2e.mjs`, `node scripts/api-smoke.mjs`, one at a time. Each prints results and exits 0 even when an expected outcome is wrong, so read the output and check each line against the table below.
+4. **Browser walkthrough (optional, recommended):** follow the Level 3 table with a fresh account. Use the Finance tabs and the public invoice page.
+
+### Expected outcomes to check
+
+| Action | Expected |
+|---|---|
+| Pay a registered supplier within the per-payment limit | `settled`, transaction link present |
+| Pay above the per-payment limit | `failed`, "exceeds per-payment limit" from the contract |
+| Pay past the daily limit | `failed`, "exceeds daily limit" |
+| Reuse a payment key with a different amount | HTTP 409 |
+| Pay to an account that is not a registered supplier (chat or API) | refused; the agent does not send |
+| Pay after revoking the agent | `failed`, "agent revoked" |
+| Batch with one refused line | status `partial`, other lines `settled` |
+| Batch with an unknown outcome on one line | status `processing`, never `failed` |
+| Invoice paid with the correct amount and invoice memo | `paid`, verified on chain |
+| Payment fully refunded to the payer in the same transaction (`ft_transfer_call` refund) | invoice stays pending; covered by `money-and-guards.test.js` (cannot be triggered from the UI) |
+| Bill from an unknown sender | flagged `unknown_supplier`; Pay refused until registered |
+| Bill with a different payout account | flagged `payout_changed`; pays only the registered account |
+| Second Pay on the same bill | "already sent; not sent again" |
+| Remove an approved supplier | vault approval revoked first, then the record is deleted |
+| CSV export | fixed 6-decimal amounts, UTC times, formula cells neutralised |
+| Demo payer | rate limited to 5 calls per IP per hour; a second click for the same invoice is refused |
+
+### How to check the claims
+
+- For each README claim, find the code path and the test that covers it (README section 2.4 lists them). Mark a claim as **verified** only if you saw the code or a passing test or a live result. Mark it **not verified** if none of those apply, and say so.
+- Check the README and CLAIMS.md against the code. Report any statement the code contradicts, quoting the line.
+- Distinguish a fixture result from a real testnet result. Email in fixture mode is not delivered, and Notion is skipped without credentials.
+- Do not count a Notion or email job as delivered unless you saw the provider accept it.
+
+### What to report
+
+- Command or step, time (UTC), network, and the observed result, copied exactly for errors.
+- Each failure with the file and line if you can find it.
+- Claims you could not verify, and why (no credentials, no browser, RPC throttled, sponsor empty).
+- Do not report a result as a pass based on a count alone. A passing test count does not prove a feature works in production.
+
 ## Known limits (so you do not mark them as bugs)
 
 - Testnet and test token only. Cross-chain checkout (NEAR Intents) is a **quote only** and never takes a deposit.

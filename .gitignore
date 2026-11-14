@@ -8,3 +8,6 @@ target/
 Cargo.lock.bak
 .env.near
 .taste-skill/
+
+# Local-only audit notes (not for the repo)
+CTO_AUDIT.md
